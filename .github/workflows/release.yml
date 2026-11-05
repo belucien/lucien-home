@@ -1,9 +1,11 @@
-# Builds the Windows installer and publishes it as a GitHub release when a version tag (v1.2.3) is pushed.
-# Every copy of Lucien Home checks the latest release and offers the update.
+# Builds the Windows installer and publishes it as a GitHub release whenever launcher/app/package.json
+# gets a new version number. Every copy of Lucien Home checks the latest release and offers the update.
 name: Release
 on:
   push:
-    tags: ['v*']
+    branches: [main]
+    paths: ['launcher/app/package.json']
+  workflow_dispatch:
 permissions:
   contents: write
 env:
@@ -13,21 +15,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Version from tag
+      - name: Version
         id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          V="${GITHUB_REF_NAME#v}"
+          V=$(python3 -c "import json;print(json.load(open('launcher/app/package.json'))['version'])")
           echo "version=$V" >> "$GITHUB_OUTPUT"
-          grep -q "\"version\": \"$V\"" launcher/app/package.json || { echo "launcher/app/package.json is not $V"; exit 1; }
+          if gh release view "v$V" >/dev/null 2>&1; then echo "v$V is already published"; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
       - name: Tools
+        if: steps.v.outputs.skip != '1'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis p7zip-full python3
       - name: Electron runtime (checked against Electron's published checksums)
+        if: steps.v.outputs.skip != '1'
         run: |
           cd "$RUNNER_TEMP"
           curl -sSLo el.zip "https://github.com/electron/electron/releases/download/v$ELECTRON/electron-v$ELECTRON-win32-x64.zip"
           curl -sSLo SHASUMS256.txt "https://github.com/electron/electron/releases/download/v$ELECTRON/SHASUMS256.txt"
           echo "$(grep " \*\?electron-v$ELECTRON-win32-x64.zip" SHASUMS256.txt | cut -d' ' -f1)  el.zip" | sha256sum -c -
       - name: Stage the app
+        if: steps.v.outputs.skip != '1'
         run: |
           B=launcher/build
           rm -rf $B/stage && mkdir -p $B/stage && cd $B/stage
@@ -36,11 +43,13 @@ jobs:
           mkdir -p resources/app && cp -r ../../app/* resources/app/ && rm -f resources/app/family.json
           cd .. && python3 icon.py stage/electron.exe exe.ico new.exe && python3 ver.py new.exe "stage/Lucien Home.exe" "${{ steps.v.outputs.version }}" "Lucien Home" stage/electron.exe && rm -f stage/electron.exe new.exe
       - name: Installer
+        if: steps.v.outputs.skip != '1'
         run: cd launcher/build && mkdir -p out && makensis -V2 -DVERSION=${{ steps.v.outputs.version }} installer.nsi && ls -la out
       - name: Publish release
+        if: steps.v.outputs.skip != '1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           V=${{ steps.v.outputs.version }}
           NOTES=launcher/notes/$V.md; [ -f "$NOTES" ] || echo "Lucien Home $V" > "$NOTES"
-          gh release create "v$V" "launcher/build/out/Lucien Home Setup $V.exe" --title "Lucien Home $V" --notes-file "$NOTES"
+          gh release create "v$V" "launcher/build/out/Lucien Home Setup $V.exe" --target "$GITHUB_SHA" --title "Lucien Home $V" --notes-file "$NOTES"
