@@ -1,0 +1,6 @@
+family.json
+*.exe
+*.part
+node_modules/
+launcher/build/stage/
+launcher/build/out/

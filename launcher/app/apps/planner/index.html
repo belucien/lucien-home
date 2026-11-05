@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="../shim.js"></script>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lucien Family Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700;12..96,800&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: app shell — header + who chip, one view at a time (Home, Lists, Dates, Done),
+   bottom tab bar on phones (top bar on desktop) with a raised Add button. Add/edit open as sheets. */
+:root{
+  --bg:#EDF0F4; --surface:#FFFFFF; --sunk:#F5F7FA; --fg:#141C27; --muted:#59667A; --line:#D8DEE6; --line2:#E7EBF0;
+  --accent:#2F3E8F; --accent-fg:#FFFFFF; --accent-soft:#E2E6F6;
+  --hero:#18213A; --hero-fg:#F2F4FA; --hero-muted:#A9B2CC; --hero-line:#2C3758; --hero-accent:#F3C969;
+  --c0:#3B4F9E; --c1:#2F7D5B; --c2:#C0332B; --c3:#946200; --c4:#A3346B; --c5:#1F6F82;
+  --t0:#E4E8F6; --t1:#E0F0E8; --t2:#F8E3E1; --t3:#F6EDD6; --t4:#F6E2EC; --t5:#DDF0F4;
+  --p0:#7A4BB5; --p1:#C46A16;
+  --good:#1E7B45; --bad:#B42318;
+  --f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"Figtree",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  color-scheme:light;
+}
+@media all{:root{
+  --bg:#0E131A; --surface:#161D27; --sunk:#121821; --fg:#E7ECF2; --muted:#98A4B5; --line:#283241; --line2:#1F2834;
+  --accent:#9AA8F0; --accent-fg:#10151F; --accent-soft:#1F2747;
+  --hero:#1C2747; --hero-fg:#F2F4FA; --hero-muted:#AAB4D2; --hero-line:#33406A; --hero-accent:#F3C969;
+  --c0:#8E9EEA; --c1:#6CC79C; --c2:#F07A70; --c3:#E2B44F; --c4:#EB8DBA; --c5:#6CC4D6;
+  --t0:#1F2645; --t1:#16352A; --t2:#3E1D1B; --t3:#3A2E12; --t4:#3D1C2C; --t5:#14343B;
+  --p0:#B791E8; --p1:#F0A35C;
+  --good:#5DC489; --bad:#F07A70; color-scheme:dark}}
+
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.45;-webkit-text-size-adjust:100%;-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font:inherit;color:inherit}
+[hidden]{display:none!important}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h1,h2,h3{font-family:var(--f-display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+.money,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+
+/* ---------- shell ---------- */
+.shell{max-width:980px;margin:0 auto;padding:14px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+.top{display:flex;align-items:center;gap:10px}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
+.mark{width:34px;height:34px;border-radius:10px;background:var(--accent);display:grid;place-items:center;flex:none}
+.mark svg{width:20px;height:20px}
+.top h1{font-size:clamp(1.15rem,5vw,1.4rem);font-weight:800;line-height:1.1}
+.iconbtn{all:unset;cursor:pointer;width:38px;height:38px;border-radius:11px;display:grid;place-items:center;color:var(--muted);border:1px solid var(--line);background:var(--surface);flex:none}
+.iconbtn:hover{color:var(--fg)}
+.iconbtn svg{width:18px;height:18px}
+.iconbtn:focus-visible{outline:2px solid var(--accent)}
+.spin svg{animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.subbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.whochip{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 12px 4px 4px;font-size:.9rem}
+.whochip button{all:unset;cursor:pointer;color:var(--accent);font-weight:700;font-size:.84rem;margin-left:4px}
+.asof{font-size:.8rem;color:var(--muted)}
+
+nav.tabs{position:fixed;z-index:20;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom,0px));width:min(640px,calc(100% - 24px));display:flex;gap:2px;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:6px 8px;box-shadow:0 10px 30px rgba(0,0,0,.14)}
+nav.tabs button{all:unset;cursor:pointer;flex:1;min-width:0;text-align:center;padding:6px 0;border-radius:12px;font-weight:600;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:2px;font-size:.72rem}
+nav.tabs button svg{width:22px;height:22px;display:block}
+nav.tabs button[aria-current="page"]{color:var(--accent)}
+nav.tabs button.fab{flex:none;width:56px;height:56px;padding:0;border-radius:18px;margin:-26px 8px 0;display:grid;place-items:center;background:var(--accent);color:var(--accent-fg);box-shadow:0 6px 16px rgba(0,0,0,.25)}
+nav.tabs button.fab svg{width:26px;height:26px}
+nav.tabs button.fab span{display:none}
+nav.tabs button:focus-visible{outline:2px solid var(--accent)}
+.shell{padding-bottom:calc(112px + env(safe-area-inset-bottom,0px))!important}
+/* phones: docked edge to edge */
+@media (max-width:700px){
+  nav.tabs{left:0;right:0;transform:none;width:auto;bottom:0;border-radius:0;border-width:1px 0 0;box-shadow:none;padding:6px max(8px,env(safe-area-inset-right,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(8px,env(safe-area-inset-left,0px));gap:0}
+  nav.tabs button{font-size:.64rem;padding:5px 0}
+  nav.tabs button svg{width:21px;height:21px}
+  nav.tabs button.fab{width:52px;height:52px;margin:-22px 3px 0}
+}
+
+/* ---------- common ---------- */
+.view{display:flex;flex-direction:column;gap:14px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:16px;min-width:0}
+.ph{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap;margin-bottom:12px}
+.ph h2{font-size:1.15rem;font-weight:700}
+.ph .muted{font-size:.84rem}
+.link{all:unset;cursor:pointer;color:var(--accent);font-weight:700;font-size:.88rem}
+.link:focus-visible{outline:2px solid var(--accent)}
+.btn{cursor:pointer;border:1px solid var(--line);background:var(--surface);border-radius:11px;padding:10px 16px;font-weight:600;white-space:nowrap}
+.btn.primary{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.sm{padding:6px 12px;font-size:.86rem;border-radius:9px}
+.btn:disabled{opacity:.55;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.empty{padding:24px 14px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:12px;background:var(--surface)}
+.notice{padding:10px 14px;border-radius:10px;background:var(--sunk);border:1px solid var(--line);color:var(--muted);font-size:.9rem}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px;min-width:0}
+.stat .k{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+.stat .v{font-family:var(--f-display);font-size:1.5rem;font-weight:800;line-height:1.15;margin-top:2px;overflow-wrap:anywhere}
+.stat .v.money{font-family:var(--f-mono);font-size:1.2rem;font-weight:600}
+.stat .d{font-size:.8rem;color:var(--muted)}
+@media (max-width:520px){.stats{grid-template-columns:repeat(2,minmax(0,1fr))}.stats .stat:first-child{grid-column:1/-1}}
+
+/* hero countdown */
+.hero{background:var(--hero);color:var(--hero-fg);border-radius:22px;padding:20px;display:flex;flex-direction:column;gap:14px;position:relative;overflow:hidden}
+.hero .eyebrow{font-size:.74rem;text-transform:uppercase;letter-spacing:.09em;color:var(--hero-muted);font-weight:700}
+.hero .nameline{font-family:var(--f-display);font-weight:700;font-size:1.3rem}
+.hero .big{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.hero .big b{font-family:var(--f-display);font-weight:800;font-size:clamp(3.4rem,17vw,5.2rem);line-height:.9;letter-spacing:-.03em;color:var(--hero-accent)}
+.hero .big span{font-family:var(--f-display);font-weight:700;font-size:1.25rem}
+.hero .when{color:var(--hero-muted);font-size:.92rem}
+.hero .next{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;border-top:1px solid var(--hero-line);padding-top:12px}
+.hero .next button{all:unset;cursor:pointer;min-width:0}
+.hero .next .n{font-family:var(--f-display);font-weight:800;font-size:1.35rem}
+.hero .next .l{font-size:.8rem;color:var(--hero-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hero .next button:focus-visible{outline:2px solid var(--hero-fg)}
+/* small calendar tear-off mark in the hero corner */
+.hero .cal{position:absolute;right:18px;top:18px;width:58px;border-radius:10px;overflow:hidden;background:var(--hero-fg);color:var(--hero);text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.hero .cal i{display:block;background:var(--hero-accent);color:var(--hero);font-style:normal;font-size:.66rem;font-weight:800;letter-spacing:.08em;padding:3px 0}
+.hero .cal b{display:block;font-family:var(--f-display);font-weight:800;font-size:1.5rem;padding:2px 0 4px}
+
+/* list cards */
+.listgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.lcard{all:unset;box-sizing:border-box;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:8px;position:relative;overflow:hidden;min-width:0}
+.lcard::before{content:"";position:absolute;inset:0 auto 0 0;width:5px;background:var(--cc)}
+.lcard .nm{font-family:var(--f-display);font-weight:700;font-size:1.08rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lcard .st{font-size:.84rem;color:var(--muted);display:flex;justify-content:space-between;gap:8px}
+.lcard:focus-visible{outline:2px solid var(--accent)}
+.lcard.new{border-style:dashed;align-items:center;justify-content:center;color:var(--muted);font-weight:700}
+.lcard.new::before{display:none}
+.bar{height:8px;border-radius:999px;background:var(--sunk);border:1px solid var(--line2);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:999px;background:var(--cc,var(--accent))}
+
+/* countdown cards */
+.cdgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.cd{all:unset;box-sizing:border-box;cursor:pointer;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px;display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 14px;align-items:center;min-width:0}
+.cd:focus-visible{outline:2px solid var(--accent)}
+.cd .days{grid-row:1/4;width:72px;height:72px;border-radius:14px;background:var(--tc);color:var(--cc);display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1}
+.cd .days b{font-family:var(--f-display);font-weight:800;font-size:1.9rem}
+.cd .days small{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-top:3px}
+.cd .nm{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cd .dt{font-size:.84rem;color:var(--muted)}
+.cd .tag{display:flex;gap:6px;flex-wrap:wrap;font-size:.75rem}
+.tagpill{font-weight:700;padding:1px 8px;border-radius:999px;background:var(--tc);color:var(--cc);text-transform:capitalize}
+.cd.now .days{background:var(--cc);color:var(--surface)}
+.cd .prog{grid-column:2;font-size:.78rem;color:var(--muted)}
+.k-party{--cc:var(--c4);--tc:var(--t4)} .k-concert{--cc:var(--c0);--tc:var(--t0)} .k-vacation{--cc:var(--c5);--tc:var(--t5)}
+.k-birthday{--cc:var(--c3);--tc:var(--t3)} .k-appointment{--cc:var(--c1);--tc:var(--t1)} .k-other{--cc:var(--muted);--tc:var(--sunk)}
+.k-holiday{--cc:var(--c2);--tc:var(--t2)} .k-baby{--cc:var(--c1);--tc:var(--t1)}
+.hol{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 14px}
+.hol label{display:flex;align-items:center;gap:10px;padding:6px 0;cursor:pointer}
+.hol input{width:20px;height:20px;accent-color:var(--accent);margin:0}
+.hol .d{color:var(--muted);font-size:.82rem;margin-left:auto}
+
+/* lists view */
+.chips{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}
+.chips::-webkit-scrollbar{display:none}
+.chip{all:unset;cursor:pointer;flex:none;font-size:.88rem;font-weight:600;padding:7px 13px;border-radius:999px;border:1px solid var(--line);color:var(--muted);background:var(--surface);display:flex;align-items:center;gap:6px}
+.chip i{width:9px;height:9px;border-radius:3px;background:var(--cc)}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip.dash{border-style:dashed}
+.chip:focus-visible{outline:2px solid var(--accent)}
+.toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+.toolbar input[type=search]{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:9px 11px;min-width:0;flex:1 1 200px;max-width:360px;font-size:16px}
+.tools{display:flex;gap:4px;align-items:center;flex-wrap:wrap}
+.toggle{display:flex;align-items:center;gap:6px;color:var(--muted);font-size:.9rem;cursor:pointer;padding:4px 6px}
+.btn.link{border:0;background:none;padding:4px 6px;color:var(--muted);font-weight:600}
+.btn.link:hover{color:var(--fg)}
+.cat{display:flex;flex-direction:column;gap:10px}
+.cat-h,.sec-h{all:unset;box-sizing:border-box;cursor:pointer;width:100%}
+.cat-h{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;border-bottom:2px solid var(--cc);padding-bottom:6px}
+.cat-h h2{font-size:1.25rem;color:var(--cc);font-weight:800}
+.sec{background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.sec-h{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 14px;background:var(--sunk);font-size:.75rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700}
+.cat-h:focus-visible,.sec-h:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.hl{display:inline-flex;align-items:center;gap:8px}
+.chev{display:inline-block;width:8px;height:8px;border:solid currentColor;border-width:0 2px 2px 0;transform:rotate(45deg);transition:transform .15s;margin-bottom:3px;flex:none}
+[aria-expanded="false"] .chev{transform:rotate(-45deg);margin-bottom:0}
+.sec-h .bothnote{font-weight:500;text-transform:none;letter-spacing:0}
+.item{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:11px 14px;border-top:1px solid var(--line2)}
+.sec-h + .item{border-top:0}
+.item .body{all:unset;cursor:pointer;min-width:0;display:block}
+.item .body:focus-visible{outline:2px solid var(--accent);border-radius:6px}
+.chk{appearance:none;-webkit-appearance:none;width:26px;height:26px;border:2px solid var(--muted);border-radius:8px;cursor:pointer;display:grid;place-items:center;margin:0;background:var(--surface)}
+.chk:checked{background:var(--cc);border-color:var(--cc)}
+.chk:checked::after{content:"";width:6px;height:12px;border:solid var(--surface);border-width:0 2.5px 2.5px 0;transform:translateY(-1px) rotate(45deg)}
+.nm2{font-weight:600;overflow-wrap:anywhere}
+.item.done .nm2{text-decoration:line-through;color:var(--muted);font-weight:500}
+.meta{display:flex;flex-wrap:wrap;gap:4px 10px;font-size:.82rem;color:var(--muted);margin-top:2px}
+.meta a{color:var(--cc)}
+.olink{display:inline-flex;align-items:center;margin-top:6px;padding:5px 12px;border-radius:999px;font-size:.8rem;font-weight:700;color:var(--cc);background:var(--tc);text-decoration:none}
+.olink:focus-visible{outline:2px solid var(--accent)}
+.pill{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:1px 7px;border-radius:999px;background:var(--tc);color:var(--cc)}
+.pill.both{background:var(--sunk);color:var(--fg);border:1px solid var(--line)}
+.wait{color:var(--fg)}
+.price{text-align:right;font-size:.92rem;white-space:nowrap;display:flex;align-items:center;gap:8px}
+.price small{display:block;font-family:var(--f-body);font-size:.7rem;color:var(--muted)}
+.who{width:26px;height:26px;border-radius:50%;display:inline-grid;place-items:center;font-size:.72rem;font-weight:800;color:#fff;background:var(--muted);flex:none}
+.who.p0{background:var(--p0)} .who.p1{background:var(--p1)}
+@media all{.who{color:#10151B}}
+.pair{display:flex;gap:4px}
+.pp{width:28px;height:28px;border-radius:50%;border:2px solid var(--pc);background:var(--surface);color:var(--pc);font-weight:800;font-size:.72rem;cursor:pointer;display:grid;place-items:center;padding:0}
+.pp.p0{--pc:var(--p0)} .pp.p1{--pc:var(--p1)}
+.pp.on{background:var(--pc);color:var(--surface)}
+.pp.mine{box-shadow:0 0 0 2px var(--surface),0 0 0 3px var(--pc)}
+/* manage lists */
+.lists-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line2)}
+.lists-row:first-child{border-top:0}
+.dot{width:12px;height:12px;border-radius:4px;background:var(--cc)}
+.lists-row input{font-size:16px;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:6px 10px;width:100%;min-width:0}
+.lists-row .confirm{grid-column:1/-1}
+.confirm{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.9rem;background:var(--t2);color:var(--c2);padding:10px 12px;border-radius:10px}
+
+/* meals */
+.weekbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.night{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid var(--line2)}
+.night:first-child{border-top:0}
+.night .dd{width:48px;text-align:center;line-height:1.05}
+.night .dd b{display:block;font-family:var(--f-display);font-weight:800;font-size:1.3rem}
+.night .dd small{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.night.today .dd{background:var(--accent);color:var(--accent-fg);border-radius:12px;padding:5px 0}
+.night.today .dd small{color:var(--accent-fg)}
+.night.past{opacity:.55}
+.night .body{all:unset;cursor:pointer;min-width:0;display:block}
+.night .body:focus-visible{outline:2px solid var(--accent);border-radius:6px}
+.night .nm{font-weight:700;overflow-wrap:anywhere;line-height:1.25}
+.night .nm.none{color:var(--muted);font-weight:500}
+.night .acts .mini{width:32px;height:32px}
+.night .acts{gap:3px}
+.night .sub{font-size:.8rem;color:var(--muted);display:flex;gap:4px 8px;flex-wrap:wrap;align-items:center;margin-top:2px}
+.night .acts{display:flex;gap:4px}
+.mini{all:unset;cursor:pointer;width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:var(--muted);border:1px solid var(--line)}
+.mini svg{width:16px;height:16px}
+.mini[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.mini:focus-visible{outline:2px solid var(--accent)}
+.tg{font-size:.68rem;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--sunk);border:1px solid var(--line);color:var(--muted)}
+.tg.v{background:var(--t1);color:var(--c1);border-color:transparent}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.rcard{all:unset;box-sizing:border-box;cursor:pointer;border:1px solid var(--line);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;background:var(--surface);min-width:0}
+.rcard:focus-visible{outline:2px solid var(--accent)}
+.rcard .nm{font-weight:700;display:flex;justify-content:space-between;gap:8px}
+.rcard .nm span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rcard .tags{display:flex;gap:4px;flex-wrap:wrap}
+.rcard .mt{font-size:.8rem;color:var(--muted)}
+.fav{color:var(--c3);font-weight:800}
+.tonight{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center}
+.tonight .ic{width:46px;height:46px;border-radius:14px;background:var(--t3);color:var(--c3);display:grid;place-items:center}
+.tonight .ic svg{width:24px;height:24px}
+.tonight .nm{font-family:var(--f-display);font-weight:700;font-size:1.1rem}
+.pick{display:flex;flex-direction:column;max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:12px}
+.pick button{all:unset;cursor:pointer;padding:10px 12px;border-top:1px solid var(--line2);display:flex;justify-content:space-between;gap:8px}
+.pick button:first-child{border-top:0}
+.pick button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent);font-weight:700}
+.pick button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.tagpick{display:flex;flex-wrap:wrap;gap:6px}
+.tagpick button{all:unset;cursor:pointer;font-size:.85rem;font-weight:600;padding:6px 12px;border-radius:999px;border:1px solid var(--line);color:var(--muted)}
+.tagpick button[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.tagpick button:focus-visible{outline:2px solid var(--accent)}
+.rules{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}
+textarea{resize:vertical;min-height:90px;line-height:1.4}
+/* shop */
+.aisle{font-size:.74rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;padding:14px 4px 4px;display:flex;justify-content:space-between}
+.aisle:first-child{padding-top:0}
+.srow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:9px 4px;border-top:1px solid var(--line2);--cc:var(--accent)}
+.aisle + .srow{border-top:0}
+.srow > div{min-width:0;overflow:hidden}
+.srow .body{all:unset;min-width:0;display:block;max-width:100%}
+.srow .body.tap{cursor:pointer}
+.srow .nm{font-weight:600}
+.srow.got .nm{text-decoration:line-through;color:var(--muted);font-weight:500}
+.srow .sub{font-size:.8rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .need{font-family:var(--f-mono);font-size:.86rem;white-space:nowrap;text-align:right}
+.spill{all:unset;cursor:pointer;display:inline-flex;align-items:center;gap:4px;font-size:.72rem;font-weight:700;padding:1px 8px;border-radius:999px;background:var(--t0);color:var(--c0);margin-top:3px}
+.spill.none{background:transparent;border:1px dashed var(--line);color:var(--muted)}
+.spill:focus-visible{outline:2px solid var(--accent)}
+.storeh{font-family:var(--f-display);font-weight:800;font-size:1.05rem;padding:16px 4px 2px;display:flex;justify-content:space-between;align-items:baseline}
+.storeh:first-child{padding-top:0}
+.storeh span{font-family:var(--f-body);font-size:.8rem;color:var(--muted);font-weight:600}
+
+/* done view */
+.dlist{display:flex;flex-direction:column}
+.drow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:10px 4px;border-top:1px solid var(--line2)}
+.drow:first-child{border-top:0}
+.drow .nm{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.drow .sub{font-size:.82rem;color:var(--muted)}
+.dayh{font-size:.74rem;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);font-weight:700;padding:14px 4px 4px}
+
+/* sheet */
+.scrim{position:fixed;inset:0;background:rgba(10,14,22,.5);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+@media (min-width:701px){.scrim{align-items:center;padding:24px}}
+.sheet{background:var(--surface);width:100%;max-width:560px;max-height:calc(100% - 24px);overflow:auto;border-radius:22px 22px 0 0;padding:10px max(16px,env(safe-area-inset-right,0px)) calc(16px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:14px}
+.sheet::before{content:"";width:40px;height:5px;border-radius:3px;background:var(--line);align-self:center;flex:none}
+@media (min-width:701px){.sheet{border-radius:18px;padding:20px;max-height:100%}.sheet::before{display:none}}
+.sheet-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.sheet-h h2{font-size:1.25rem;font-weight:800}
+.seg{display:flex;background:var(--sunk);border:1px solid var(--line);border-radius:11px;padding:3px;gap:3px;overflow-x:auto;scrollbar-width:none;flex:none}
+.seg::-webkit-scrollbar{display:none}
+.seg button{all:unset;cursor:pointer;flex:1;text-align:center;padding:7px 12px;border-radius:8px;font-weight:600;font-size:.88rem;color:var(--muted);white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 2px rgba(0,0,0,.1)}
+.seg button:focus-visible{outline:2px solid var(--accent)}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.grid2 .full{grid-column:1/-1}
+.f{display:flex;flex-direction:column;gap:5px;font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;min-width:0}
+.f input,.f select,.f textarea{text-transform:none;letter-spacing:0;font-weight:400;font-size:16px;color:var(--fg);background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:9px 11px;width:100%;min-width:0}
+.bigname{all:unset;box-sizing:border-box;width:100%;font-family:var(--f-display);font-weight:700;font-size:1.6rem;border-bottom:2px solid var(--line);padding:4px 2px}
+.bigname:focus{border-color:var(--accent)}
+label.cb{display:flex;align-items:center;gap:10px;font-weight:600;cursor:pointer}
+label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
+.hint{font-size:.84rem;color:var(--muted);margin:0}
+.err{color:var(--bad);font-size:.9rem}
+.err:empty{display:none}
+.sticky-actions{position:sticky;bottom:calc(-16px - env(safe-area-inset-bottom,0px));background:var(--surface);padding:10px 0 2px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.sticky-actions .btn.primary{flex:1;max-width:260px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:.9rem;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60;max-width:calc(100% - 32px);text-align:center}
+.toast.on{opacity:1}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l2 2 3-4M4 13l2 2 3-4M12 7h8M12 14h8M5 20h15"/></svg></div>
+      <h1 id="appName">Lucien Family Planner</h1>
+    </div>
+    <button class="iconbtn" id="refreshBtn" title="Refresh" aria-label="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg></button>
+  </header>
+
+  <nav class="tabs" id="nav" aria-label="Sections">
+    <button data-go="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+    <button data-go="lists"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l2 2 3-4M4 14l2 2 3-4M13 7h8M13 15h8"/></svg>Lists</button>
+    <button data-go="dates"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Dates</button>
+    <button class="fab" data-add="item" aria-label="Add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Add</span></button>
+    <button data-go="meals"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v8M5 3v5a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 2-3 4-3 7h3v11"/></svg>Meals</button>
+    <button data-go="shop"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.7a2 2 0 0 0 2-1.5L21 8H6.2"/><circle cx="10" cy="20.5" r="1"/><circle cx="17" cy="20.5" r="1"/></svg>Shop</button>
+    <button data-go="done"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></svg>Done</button>
+  </nav>
+
+  <div class="subbar"><div class="whochip" id="who"></div><span class="asof" id="asof"></span></div>
+  <div id="status" class="notice">Loading your lists…</div>
+  <main id="view" class="view"></main>
+</div>
+
+<div class="scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></div></div>
+<div class="toast" id="toast" role="status"></div>
+<input type="file" id="scanInput" accept="image/*" hidden>
+
+<script>
+/* ======================================================================
+   STATE
+   ====================================================================== */
+const POLL_MS=10000;
+let people=[], me=null, items=[], lists=[], events=[], due=null, today=null, loaded=false, linkMe=null, busy=0;
+let recipes=[], plan=[], checks=[], settings={}, mealWk="this", shopWk=null, rsearch="", rtag="", planMsg="", shopStore="", shopGroup="aisle";
+let view="home", listView="all", q="", showDone=false, collapsed=new Set(), confirmList=null, renaming=null, managing=false, showPast=false;
+let S=null;   // open sheet
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt=n=>n==null?"":new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:n%1?2:0}).format(n);
+const num=v=>{const n=parseFloat(String(v??"").replace(/[$,\s]/g,""));return isFinite(n)?Math.round(n*100)/100:null;};
+const isUrl=s=>/^https?:\/\//i.test(s||"");
+const names=s=>String(s||"").split(",").map(x=>x.trim()).filter(Boolean);
+const store={get(k){try{return localStorage.getItem(k)}catch(_){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(_){}}};
+const listOf=c=>lists.find(l=>l.id===c);
+const label=c=>(listOf(c)||{}).label||"Other";
+const catVars=c=>{const n=((listOf(c)||{}).color||0)%6;return `--cc:var(--c${n});--tc:var(--t${n})`;};
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(toast._t);toast._t=setTimeout(()=>t.classList.remove("on"),2400);}
+function setStatus(t){const s=$("#status");s.hidden=!t;s.textContent=t||"";}
+function call(fn,...args){return new Promise((res,rej)=>google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](...args));}
+function saveCollapsed(){store.set("collapsed",JSON.stringify([...collapsed]));}
+
+/* ======================================================================
+   DATES & COUNTDOWNS
+   ====================================================================== */
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DOW=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const pad=n=>String(n).padStart(2,"0");
+const ymd=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parseD=s=>{const[y,m,d]=String(s).split("-").map(Number);return new Date(y,(m||1)-1,d||1);};
+const todayStr=()=>today||ymd(new Date());
+const diffDays=(a,b)=>Math.round((parseD(b)-parseD(a))/864e5);
+const nthDow=(y,m,dow,n)=>{const d=new Date(y,m,1);const off=(dow-d.getDay()+7)%7;return new Date(y,m,1+off+7*(n-1));};
+function easter(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),mo=Math.floor((h+l-7*m+114)/31),da=((h+l-7*m+114)%31)+1;return new Date(y,mo-1,da);}
+const HOLIDAYS=[
+  ["newyear","New Year's Day",y=>new Date(y,0,1)],
+  ["valentines","Valentine's Day",y=>new Date(y,1,14)],
+  ["easter","Easter",y=>easter(y)],
+  ["mothers","Mother's Day",y=>nthDow(y,4,0,2)],
+  ["fathers","Father's Day",y=>nthDow(y,5,0,3)],
+  ["july4","Independence Day",y=>new Date(y,6,4)],
+  ["halloween","Halloween",y=>new Date(y,9,31)],
+  ["thanksgiving","Thanksgiving",y=>nthDow(y,10,4,4)],
+  ["blackfriday","Black Friday",y=>{const t=nthDow(y,10,4,4);return new Date(y,10,t.getDate()+1);}],
+  ["christmas","Christmas",y=>new Date(y,11,25)],
+  ["nye","New Year's Eve",y=>new Date(y,11,31)]
+];
+const hiddenHol=()=>new Set(events.filter(e=>e.kind==="hidden").map(e=>String(e.id).replace(/^hide-/,"")));
+function nextHoliday(fn){ const t=todayStr(), y=parseD(t).getFullYear(); let d=ymd(fn(y)); if(d<t) d=ymd(fn(y+1)); return d; }
+
+/* Every countdown, next occurrence first. */
+function countdowns(){
+  const t=todayStr(), out=[], hide=hiddenHol();
+  HOLIDAYS.forEach(([key,name,fn])=>{ if(!hide.has(key)) out.push({id:"hol:"+key,key,name,kind:"holiday",start:nextHoliday(fn),end:"",builtin:true}); });
+  if(due && /^\d{4}-\d{2}-\d{2}$/.test(due) && diffDays(due,t)<=30) out.push({id:"baby",name:"Baby's due date",kind:"baby",start:due,end:"",builtin:true});
+  events.filter(e=>e.kind!=="hidden").forEach(e=>{
+    let s=e.start, en=e.end||"";
+    if(e.yearly){ const y=parseD(t).getFullYear(), span=en?diffDays(s,en):0;
+      for(const yy of [y-1,y,y+1]){ const ns=yy+s.slice(4), ne=span?ymd(new Date(parseD(ns).getTime()+span*864e5)):""; if((ne||ns)>=t){ s=ns; en=ne; break; } } }
+    out.push(Object.assign({},e,{start:s,end:en}));
+  });
+  return out.map(c=>{ const last=c.end||c.start, d=diffDays(t,c.start), past=last<t, now=!past&&c.start<=t;
+    return Object.assign(c,{days:d, past, now, dayOf: now&&c.end ? diffDays(c.start,t)+1 : 0, length: c.end?diffDays(c.start,c.end)+1:1}); })
+    .sort((a,b)=>(a.past-b.past)|| (a.past ? b.start.localeCompare(a.start) : a.start.localeCompare(b.start)));
+}
+function dateLabel(c){
+  const s=parseD(c.start), f=d=>`${DOW[d.getDay()]}, ${MON[d.getMonth()]} ${d.getDate()}`+(d.getFullYear()!==parseD(todayStr()).getFullYear()?`, ${d.getFullYear()}`:"");
+  let txt=f(s); if(c.end){ const e=parseD(c.end); txt+=` – ${e.getMonth()===s.getMonth()?e.getDate():MON[e.getMonth()]+" "+e.getDate()}`; }
+  if(c.time){ const[h,m]=c.time.split(":").map(Number); txt+=` · ${((h+11)%12)+1}:${pad(m)} ${h<12?"AM":"PM"}`; }
+  return txt;
+}
+function bigCount(c){
+  if(c.now) return c.end?{n:`Day ${c.dayOf}`,u:`of ${c.length}`}:{n:"Today",u:""};
+  if(c.past) return {n:String(-diffDays(c.end||c.start,todayStr())),u:"days ago"};
+  if(c.days===1) return {n:"1",u:"day"};
+  return {n:String(c.days),u:"days"};
+}
+function weeksText(d){ if(d<14) return ""; const w=Math.floor(d/7), r=d%7; return `${w} weeks${r?` ${r} day${r>1?"s":""}`:""}`; }
+const kindLabel=k=>({holiday:"Holiday",baby:"Baby",party:"Party",concert:"Concert",vacation:"Vacation",birthday:"Birthday",appointment:"Appointment",other:"Event"})[k]||"Event";
+
+/* ======================================================================
+   MEALS & SHOP
+   ====================================================================== */
+const GROC="groceries";
+const realLists=()=>lists.filter(l=>l.id!==GROC);
+const AISLES=["Produce","Meat & seafood","Dairy & eggs","Bakery","Frozen","Pantry","Spices","Household","Other"];
+const TAGS=["Vegan","Vegetarian","Pescatarian","Dairy-free","Gluten-free","Quick","Kid-friendly","Slow cooker"];
+const DIETS=["Vegan","Vegetarian","Pescatarian","Dairy-free","Gluten-free"];
+const DAYS=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const addD=(s,n)=>{const d=parseD(s);d.setDate(d.getDate()+n);return ymd(d);};
+const weekStart=t=>{const d=parseD(t);d.setDate(d.getDate()-d.getDay());return ymd(d);};
+const thisWeek=()=>weekStart(todayStr()), nextWeek=()=>addD(thisWeek(),7);
+const recipeOf=id=>recipes.find(r=>r.id===id);
+function tagsOf(r){ const t=new Set(r.tags||[]); if(t.has("Vegan")){t.add("Vegetarian");t.add("Dairy-free");} if(t.has("Vegetarian")) t.add("Pescatarian"); return t; }
+function rules(){ const R=Object.assign({diet:[],days:["any","any","any","any","any","takeout","any"],noRepeat:true,servings:2},settings.mealRules||{}); if(!Array.isArray(R.days)||R.days.length!==7) R.days=["any","any","any","any","any","takeout","any"]; return R; }
+const staples=()=>Array.isArray(settings.staples)?settings.staples:["salt","black pepper","water"];
+const STORES_DEFAULT=["Aldi","Costco","Ralphs","Sam's Club","Sprouts","Stater Bros","Target","Trader Joe's","Walmart","Whole Foods"];
+const storeList=()=>Array.isArray(settings.stores)&&settings.stores.length?settings.stores:STORES_DEFAULT;
+const storeFor=()=>settings.storeFor&&typeof settings.storeFor==="object"?settings.storeFor:{};
+function nightsOf(week){ const a=Array(7).fill(null); plan.filter(p=>p.week===week).forEach(p=>{ if(p.day>=0&&p.day<7) a[p.day]=p; }); return a; }
+const blankNight=()=>({kind:"meal",recipe:"",servings:0,leftovers:false,locked:false,cook:""});
+const ruleLabel=r=>r==="any"?"Any":r==="takeout"?"Takeout":r==="skip"?"No dinner":r;
+
+/* Random draw: honours household diet, per-night rules, favourites (3× as likely), "not for us" (never),
+   no recipe twice in a week, and — when possible — nothing from last week. Locked and blank nights stay. */
+function weightedPick(list){ const w=list.map(r=>r.fav>0?3:1), tot=w.reduce((a,b)=>a+b,0); let x=Math.random()*tot; for(let i=0;i<list.length;i++){ x-=w[i]; if(x<=0) return list[i]; } return list[list.length-1]; }
+function candidates(week,day,used){
+  const R=rules(), rule=R.days[day]||"any", last=new Set(nightsOf(addD(week,-7)).filter(n=>n&&n.recipe).map(n=>n.recipe));
+  let c=recipes.filter(r=>r.fav>=0 && R.diet.every(t=>tagsOf(r).has(t)) && !used.has(r.id) && (rule==="any"||rule==="takeout"||rule==="skip"||tagsOf(r).has(rule)));
+  if(R.noRepeat){ const f=c.filter(r=>!last.has(r.id)); if(f.length) c=f; }
+  return c;
+}
+function drawWeek(week){
+  const R=rules(), cur=nightsOf(week), out=[], missing=[];
+  const used=new Set(cur.filter(n=>n&&n.locked&&n.recipe).map(n=>n.recipe));
+  for(let d=0;d<7;d++){
+    const n=cur[d]||blankNight();
+    if(n.locked||n.kind==="skip"){ out.push(n); continue; }   // locked and blank nights are kept as they are
+    const rule=R.days[d]||"any";
+    if(rule==="takeout"||rule==="skip"){ out.push(Object.assign(blankNight(),{kind:rule,cook:n.cook})); continue; }
+    const c=candidates(week,d,used);
+    if(!c.length){ out.push(Object.assign(blankNight(),{cook:n.cook})); missing.push(DAYS[d]); continue; }
+    const r=weightedPick(c); used.add(r.id);
+    out.push(Object.assign(blankNight(),{recipe:r.id,servings:n.servings,leftovers:n.leftovers,cook:n.cook}));
+  }
+  return {out,missing};
+}
+function rerollNight(week,day){
+  const cur=nightsOf(week), n=cur[day]||blankNight();
+  const used=new Set(cur.filter((x,i)=>x&&x.recipe&&i!==day).map(x=>x.recipe)); if(n.recipe) used.add(n.recipe);
+  const R=rules(), rule=R.days[day]; const c=candidates(week,day,used);
+  if(!c.length) return null;
+  return Object.assign({},n,{kind:"meal",recipe:weightedPick(c).id,locked:false});
+}
+
+/* Ingredient lines → {q,u,name,key,aisle} */
+const UNITS={cup:"cup",cups:"cup",c:"cup",tbsp:"tbsp",tablespoon:"tbsp",tablespoons:"tbsp",tsp:"tsp",teaspoon:"tsp",teaspoons:"tsp",lb:"lb",lbs:"lb",pound:"lb",pounds:"lb",oz:"oz",ounce:"oz",ounces:"oz",g:"g",kg:"kg",ml:"ml",l:"l",can:"can",cans:"can",clove:"clove",cloves:"clove",bunch:"bunch",bunches:"bunch",head:"head",heads:"head",jar:"jar",jars:"jar",bag:"bag",bags:"bag",box:"box",boxes:"box",package:"package",packages:"package",pkg:"package",packet:"packet",packets:"packet",pint:"pint",pints:"pint",stalk:"stalk",stalks:"stalk",slice:"slice",slices:"slice",bottle:"bottle",bottles:"bottle",dozen:"dozen",pinch:"pinch",sprig:"sprig",sprigs:"sprig"};
+const COUNTY=new Set(["","can","clove","bunch","head","jar","bag","box","package","packet","pint","stalk","slice","bottle","dozen","sprig"]);
+function parseQty(x){ x=x.replace(/½/g," 1/2").replace(/¼/g," 1/4").replace(/¾/g," 3/4").replace(/⅓/g," 1/3").replace(/⅔/g," 2/3").trim(); let t=0,ok=false; for(const p of x.split(/\s+/)){ if(/^\d+\/\d+$/.test(p)){const[a,b]=p.split("/").map(Number);if(b){t+=a/b;ok=true;}} else if(/^\d*\.?\d+$/.test(p)){t+=parseFloat(p);ok=true;} } return ok?t:null; }
+function normKey(n){ let k=String(n).toLowerCase().replace(/\(.*?\)/g,"").replace(/[^a-z0-9& -]/g," ").replace(/\s+/g," ").trim();
+  return k.replace(/(\w+)$/,w=>w.endsWith("ies")&&w.length>4?w.slice(0,-3)+"y":/(oes|ches|shes)$/.test(w)?w.slice(0,-2):/[^s]s$/.test(w)&&w.length>3?w.slice(0,-1):w); }
+const AISLE_RULES=[
+  [/frozen/,"Frozen"],[/tortilla chip|chips/,"Pantry"],[/coconut milk|broth|canned|\bcan\b|beans|chickpea|lentil|rice|pasta|spaghetti|penne|ziti|gnocchi|quinoa|noodle|sauce|salsa|soy|oil|vinegar|sugar|syrup|honey|flour|pancake|mix\b|seeds|mayo|dressing|pesto|taco shell|peanut butter|oats|cereal|crushed tomato|diced tomato/,"Pantry"],
+  [/black pepper|salt|cumin|powder|seasoning|thyme|oregano|paprika|cinnamon|spice|chili flake/,"Spices"],
+  [/chicken|beef|turkey|pork|salmon|shrimp|cod|steak|fish|bacon|sausage|ham\b|tuna/,"Meat & seafood"],
+  [/cheese|mozzarella|parmesan|cheddar|ricotta|feta|milk|butter|egg|sour cream|tzatziki|yogurt|cream/,"Dairy & eggs"],
+  [/tortilla|naan|pita|bun|bread|bagel|roll/,"Bakery"],
+  [/paper|towel|soap|detergent|foil|wrap|trash|diaper|wipes|tissue/,"Household"],
+  [/avocado|lime|lemon|onion|garlic|ginger|cilantro|basil|parsley|pepper|broccoli|asparagus|potato|carrot|celery|spinach|tomato|lettuce|romaine|zucchini|mushroom|cucumber|berr|banana|apple|kale|cabbage|coleslaw|corn|squash|herb|scallion|fruit|grape/,"Produce"]];
+function guessAisle(n){ const k=String(n).toLowerCase(); for(const [re,a] of AISLE_RULES) if(re.test(k)) return a; return "Other"; }
+function parseIng(line){
+  const m=String(line).match(/^\s*((?:\d+\s+)?\d+\/\d+|\d*\.?\d+|[½¼¾⅓⅔])\s*(.*)$/); let q=null, rest=String(line).trim();
+  if(m){ q=parseQty(m[1]); rest=m[2]; }
+  let u=""; const w=rest.split(/\s+/), uw=(w[0]||"").toLowerCase().replace(/\.$/,"");
+  if(q!=null && UNITS[uw] && w.length>1){ u=UNITS[uw]; rest=w.slice(1).join(" "); }
+  const name=rest.replace(/^of\s+/i,"").split(",")[0].trim();
+  return {q,u,name,key:normKey(name),aisle:guessAisle(name)};
+}
+function fracText(x){ const w=Math.floor(x+1e-9), f=x-w, F=[[0,""],[.25,"¼"],[1/3,"⅓"],[.5,"½"],[2/3,"⅔"],[.75,"¾"],[1,""]];
+  let best=F[0]; F.forEach(o=>{ if(Math.abs(f-o[0])<Math.abs(f-best[0])) best=o; }); const W=best[0]===1?w+1:w;
+  return (W?String(W):"")+best[1] || "0"; }
+const plural=(u,n)=>!u?"":(n>1&&!["oz","g","kg","ml","l","tbsp","tsp","lb"].includes(u)?(u==="box"?"boxes":u==="bunch"?"bunches":u+"s"):u);
+function needText(parts){
+  const by={}; let asNeeded=false;
+  parts.forEach(p=>{ if(p.q==null){ asNeeded=true; return; } by[p.u]=(by[p.u]||0)+p.q; });
+  const out=Object.keys(by).map(u=>{ let n=by[u]; if(COUNTY.has(u)) n=Math.ceil(n-1e-9); return `${fracText(n)}${u?" "+plural(u,n):""}`; });
+  if(asNeeded&&!out.length) out.push("as needed");
+  return out.join(" + ");
+}
+function nightServings(n){ const R=rules(); return (n.servings||R.servings||2)*(n.leftovers?2:1); }
+/* Everything to buy for a week: meal ingredients (from today on, for this week) merged with Groceries items. */
+function shopRows(week){
+  const rows={}, stap=new Set(staples().map(normKey)), t=todayStr(), hidden=new Set();
+  nightsOf(week).forEach((n,d)=>{ if(!n||n.kind!=="meal"||!n.recipe) return; const date=addD(week,d); if(date<t) return;
+    const r=recipeOf(n.recipe); if(!r) return; const f=nightServings(n)/(r.servings||4);
+    r.ingredients.split("\n").map(x=>x.trim()).filter(Boolean).forEach(line=>{ const g=parseIng(line); if(!g.key) return; if(stap.has(g.key)){ hidden.add(g.name); return; }
+      const row=rows[g.key]||(rows[g.key]={key:g.key,name:g.name,aisle:g.aisle,parts:[],sources:[],manual:null});
+      row.parts.push({q:g.q==null?null:g.q*f,u:g.u}); row.sources.push(DAYS[d].slice(0,3)+" "+r.name); }); });
+  const wkChecks=checks.filter(c=>c.week===week), checked=new Set(wkChecks.map(c=>String(c.key).replace(/^x:/,""))), cleared=new Set(wkChecks.filter(c=>String(c.key).startsWith("x:")).map(c=>c.key.slice(2)));
+  items.filter(i=>i.cat===GROC).forEach(i=>{ const k=normKey(i.name)||i.id; const row=rows[k];
+    if(row && !row.manual) row.manual=i;
+    else rows["m:"+i.id]={key:"m:"+i.id,name:i.name,aisle:AISLES.includes(i.section)?i.section:guessAisle(i.name),parts:[],sources:[],manual:i}; });
+  const list=Object.values(rows).map(r=>{ const meal=r.parts.length>0; const mealGot=meal?checked.has(r.key):true, manGot=r.manual?!!r.manual.bought:true;
+    const sf=storeFor(); const store=(r.manual&&r.manual.store&&!isUrl(r.manual.store)?r.manual.store:"")||sf[r.key]||(r.manual?sf[normKey(r.manual.name)]:"")||"";
+    return Object.assign(r,{meal,got:mealGot&&manGot,cleared:meal&&cleared.has(r.key)&&!r.manual,need:meal?needText(r.parts):"",store,aisle:r.manual&&AISLES.includes(r.manual.section)?r.manual.section:r.aisle}); });
+  return {list,hidden:[...hidden]};
+}
+const shopWeek=()=>{ if(shopWk) return shopWk==="next"?nextWeek():thisWeek(); const d=parseD(todayStr()).getDay(); return (d>=5 && nightsOf(nextWeek()).some(n=>n&&n.recipe))?nextWeek():thisWeek(); };
+
+/* ---------------- MEALS VIEW ---------------- */
+const ICO={lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>',
+  dice:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>',
+  blank:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M6.5 17.5l11-11"/></svg>',
+  cam:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-3px"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
+  plate:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/></svg>'};
+function weekLabel(w){ const a=parseD(w), b=parseD(addD(w,6)); return `${MON[a.getMonth()]} ${a.getDate()} – ${a.getMonth()===b.getMonth()?b.getDate():MON[b.getMonth()]+" "+b.getDate()}`; }
+function nightHTML(week,d,n){
+  const date=addD(week,d), dt=parseD(date), t=todayStr(), r=n&&n.recipe?recipeOf(n.recipe):null;
+  let nm, sub="";
+  if(n&&n.kind==="takeout"){ nm="Takeout night"; }
+  else if(n&&n.kind==="skip"){ nm="Blank"; sub=`<span>Stays empty when you redraw</span>`; }
+  else if(r){ nm=r.name; const tg=[...tagsOf(r)].filter(x=>DIETS.includes(x)&&(r.tags||[]).includes(x)).slice(0,2);
+    sub=`${r.minutes?`<span>${r.minutes>=120?Math.round(r.minutes/60)+" hr":r.minutes+" min"}</span>`:""}${tg.map(x=>`<span class="tg v">${esc(x)}</span>`).join("")}${n.leftovers?`<span class="tg">Leftovers</span>`:""}`; }
+  else nm="";
+  if(n&&n.cook) sub+=`<span>${esc(n.cook)} cooks</span>`;
+  return `<div class="night ${date===t?"today":date<t?"past":""}"><div class="dd"><small>${DAYS[d].slice(0,3)}</small><b>${dt.getDate()}</b></div>
+    <button class="body" data-night="${d}" aria-label="${DAYS[d]}: ${esc(nm||"nothing planned")}"><div class="nm ${nm?"":"none"}">${esc(nm||"Tap to pick a dinner")}</div>${sub?`<div class="sub">${sub}</div>`:""}</button>
+    <div class="acts" role="group" aria-label="${DAYS[d]}: lock, redraw or blank">${(()=>{ const mode=n&&n.kind==="skip"?"blank":n&&n.locked?"lock":"redraw";
+      return `<button class="mini" data-nmode="lock" data-d="${d}" aria-pressed="${mode==="lock"}" title="Lock: Plan my week keeps this dinner" aria-label="Lock ${DAYS[d]}">${ICO.lock}</button>`+
+        `<button class="mini" data-nmode="redraw" data-d="${d}" aria-pressed="${mode==="redraw"}" title="${mode==="redraw"?"Pick something else now":"Redraw: Plan my week fills this night"}" aria-label="Redraw ${DAYS[d]}">${ICO.dice}</button>`+
+        `<button class="mini" data-nmode="blank" data-d="${d}" aria-pressed="${mode==="blank"}" title="Blank: keep this night empty" aria-label="Leave ${DAYS[d]} blank">${ICO.blank}</button>`; })()}</div></div>`;
+}
+function mealsHTML(){
+  const week=mealWk==="next"?nextWeek():thisWeek(), ns=nightsOf(week), planned=ns.filter(n=>n&&n.recipe).length, R=rules();
+  const sr=shopRows(week).list.filter(r=>!r.got).length;
+  const q=rsearch.trim().toLowerCase();
+  const box=recipes.filter(r=>(!rtag||(rtag==="Favorites"?r.fav>0:tagsOf(r).has(rtag)))&&(!q||(r.name+" "+r.ingredients).toLowerCase().includes(q))).sort((a,b)=>(b.fav-a.fav)||a.name.localeCompare(b.name));
+  return `<section class="panel"><div class="weekbar"><div class="seg" role="group" aria-label="Week"><button data-mw="this" aria-pressed="${mealWk!=="next"}">This week · ${weekLabel(thisWeek())}</button><button data-mw="next" aria-pressed="${mealWk==="next"}">Next week</button></div></div>
+    <div class="row" style="margin:12px 0"><button class="btn primary" data-planweek="1">${planned?"Redraw":"Plan my week"}</button><button class="btn" data-rules="1">Rules</button></div>
+    ${R.diet.length?`<p class="hint" style="margin:-4px 0 8px">Only ${esc(R.diet.join(" + "))} recipes are drawn.</p>`:""}
+    ${planMsg?`<div class="notice" style="margin-bottom:8px">${esc(planMsg)}</div>`:""}
+    <p class="hint" style="margin:0 0 6px">Each night: <b>lock</b> keeps it, <b>redraw</b> lets Plan my week fill it (tap again to shuffle now), <b>blank</b> leaves it empty.</p>
+    <div>${ns.map((n,d)=>nightHTML(week,d,n)).join("")}</div>
+    ${planned?`<div class="row" style="justify-content:space-between;margin-top:12px"><span class="muted">${planned} dinner${planned===1?"":"s"} planned · ${sr} thing${sr===1?"":"s"} to buy</span><button class="link" data-go="shop">Shopping list</button></div>`:""}</section>
+  <section class="panel"><div class="ph"><h2>Recipe box</h2><div class="row"><button class="btn sm" data-scan="1">${ICO.cam} Scan recipe</button><button class="btn primary sm" data-add="recipe">Add recipe</button></div></div>
+    <div class="toolbar" style="margin-bottom:10px"><input type="search" id="rsearch" value="${esc(rsearch)}" placeholder="Search recipes or ingredients" aria-label="Search recipes"></div>
+    <div class="chips" style="margin-bottom:12px"><button class="chip" data-rtag="" aria-pressed="${!rtag}">All ${recipes.length}</button><button class="chip" data-rtag="Favorites" aria-pressed="${rtag==="Favorites"}">★ Favorites</button>${TAGS.map(t=>`<button class="chip" data-rtag="${esc(t)}" aria-pressed="${rtag===t}">${esc(t)}</button>`).join("")}</div>
+    <div class="rgrid" id="rbox">${rboxHTML(box)}</div></section>`;
+}
+let rboxAll=false;
+function rboxHTML(box){ const more=box.length>8&&!rboxAll&&!rsearch.trim(); const shown=more?box.slice(0,8):box;
+  return (shown.length?shown.map(r=>`<button class="rcard" data-recipe="${esc(r.id)}"><div class="nm"><span>${esc(r.name)}</span>${r.fav>0?`<span class="fav" title="Favorite">★</span>`:r.fav<0?`<span class="muted" title="Not for us — never drawn">✕</span>`:""}</div><div class="tags">${(r.tags||[]).slice(0,4).map(t=>`<span class="tg ${DIETS.includes(t)?"v":""}">${esc(t)}</span>`).join("")}</div><div class="mt">${r.minutes?(r.minutes>=120?Math.round(r.minutes/60)+" hr":r.minutes+" min")+" · ":""}serves ${r.servings} · ${r.ingredients.split("\n").filter(Boolean).length} ingredients</div></button>`).join(""):`<div class="empty" style="grid-column:1/-1">No recipes match.</div>`)
+  + (more?`<button class="btn" data-rboxall="1" style="grid-column:1/-1">Show all ${box.length} recipes</button>`:""); }
+
+/* ---------------- RECIPE SCANNER ---------------- */
+/* Turn the text read from a recipe photo into name / servings / minutes / ingredients / steps. */
+function parseRecipeText(text){
+  const raw=String(text||"").replace(/\r/g,"").split("\n").map(x=>x.replace(/\s+/g," ").trim()).filter(Boolean);
+  const isIngH=l=>/^(ingredients?|what you('|’)?ll need|you will need)\b:?$/i.test(l.replace(/[^\w ’']/g,"").trim())||/^ingredients?\s*:?$/i.test(l);
+  const isStepH=l=>/^(directions|instructions|method|preparation|steps|how to make( it)?|to make)\b/i.test(l)&&l.length<40;
+  const bullet=l=>l.replace(/^[••·\-\*–—▢☐□○●◦>]+\s*/,"");
+  const stepNum=l=>l.replace(/^(step\s*)?\d+[\.\):]\s+/i,"");
+  let servings=null, minutes=null;
+  raw.forEach(l=>{ let m=l.match(/\b(serves|servings?|yield|makes)\b\s*:?\s*(\d+)/i); if(m&&!servings) servings=+m[2];
+    m=l.match(/\btotal( time)?\s*:?\s*(?:(\d+)\s*h(?:ou)?rs?)?\s*(?:(\d+)\s*min)?/i); if(m&&(m[2]||m[3])&&!minutes) minutes=(+m[2]||0)*60+(+m[3]||0); });
+  if(!minutes){ let t=0; raw.forEach(l=>{ for(const m of l.matchAll(/\b(prep|cook)(?:ing)?( time)?\s*:?\s*(?:(\d+)\s*h(?:ou)?rs?)?\s*(?:(\d+)\s*min)/gi)) t+=(+m[3]||0)*60+(+m[4]||0); }); if(t) minutes=t; }
+  const meta=l=>/\b(serves|servings?|yield|prep|cook|total)\b.*\d/i.test(l)&&l.length<60;
+  const iI=raw.findIndex(isIngH), iS=raw.findIndex((l,i)=>i>iI&&isStepH(l));
+  let name="", ings=[], steps=[];
+  const head=raw.slice(0,iI>0?iI:Math.min(4,raw.length)).filter(l=>!meta(l)&&!isIngH(l)&&!isStepH(l)&&l.length<=70&&!/^\d/.test(l));
+  name=head[0]||"";
+  const qtyLine=l=>/^((\d+\s+)?\d+\/\d+|\d*\.?\d+|[½¼¾⅓⅔⅛])\s*\S/.test(bullet(l));
+  if(iI>=0){
+    ings=raw.slice(iI+1,iS>iI?iS:undefined).map(bullet).filter(l=>!meta(l)&&!isStepH(l));
+    if(iS<0){ // no steps heading: ingredients end where long sentences begin
+      const cut=ings.findIndex(l=>l.length>70||/[.!]$/.test(l)&&!qtyLine(l)&&l.split(" ").length>8); if(cut>0){ steps=ings.slice(cut); ings=ings.slice(0,cut); } }
+    else steps=raw.slice(iS+1);
+  } else {
+    raw.forEach(l=>{ if(l===name||meta(l)) return; (qtyLine(l)&&l.length<70?ings:steps).push(bullet(l)); });
+    if(iS>=0) steps=raw.slice(iS+1);
+  }
+  steps=steps.map(l=>stepNum(bullet(l))).filter(Boolean);
+  // join step lines that wrapped mid-sentence
+  const joined=[]; steps.forEach(l=>{ if(joined.length&&!/[.!?:)]$/.test(joined[joined.length-1])&&/^[a-z]/.test(l)) joined[joined.length-1]+=" "+l; else joined.push(l); });
+  const tags=[]; if(minutes&&minutes<=30) tags.push("Quick");
+  return {name:name.replace(/\s+recipe$/i,""), servings:servings||4, minutes:minutes||"", ingredients:ings.join("\n"), steps:joined.map((l,i)=>`${i+1}. ${l}`).join("\n"), tags};
+}
+/* Shrink a phone photo before uploading (keeps text sharp, keeps the upload small). */
+function shrinkImage(file, maxSide=2000){
+  return new Promise((res,rej)=>{ const url=URL.createObjectURL(file), img=new Image();
+    img.onload=()=>{ const k=Math.min(1,maxSide/Math.max(img.naturalWidth,img.naturalHeight)), c=document.createElement("canvas");
+      c.width=Math.round(img.naturalWidth*k); c.height=Math.round(img.naturalHeight*k); const g=c.getContext("2d"); g.fillStyle="#fff"; g.fillRect(0,0,c.width,c.height); g.drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url); res(c.toDataURL("image/jpeg",.88).split(",")[1]); };
+    img.onerror=()=>{ URL.revokeObjectURL(url); rej(new Error("Couldn't open that photo. Try a JPG or PNG, or take a screenshot of it.")); };
+    img.src=url; });
+}
+let scanning=false;
+async function scanFile(file){
+  if(!file||scanning) return; scanning=true;
+  const keep=S&&S.kind==="recipe"&&S.mode==="add"?Object.assign({},S.vals):null;
+  if(S) closeSheet();
+  setStatus("Reading your recipe… this takes about 10 seconds.");
+  try{
+    const b64=await shrinkImage(file);
+    const r=await call("scanRecipe",b64,"image/jpeg");
+    const p=parseRecipeText(r&&r.text);
+    if(!p.ingredients&&!p.name) throw new Error("Couldn't find any recipe text in that photo. Try a brighter, closer, straight-on shot.");
+    setStatus("");
+    openSheet("recipe",{vals:Object.assign({},keep||{},{name:p.name||(keep&&keep.name)||"",servings:p.servings,minutes:p.minutes,ingredients:p.ingredients,steps:p.steps,tags:[...new Set([...(keep&&keep.tags||[]),...p.tags])],scanned:true})});
+  }catch(e){ setStatus(""); const m=String((e&&e.message)||e).replace(/^Error:\s*/,"").replace(/^SETUP:\s*/,""); toast(m); if(/Drive API/.test(m)) setStatus(m); }
+  scanning=false;
+}
+$("#scanInput").addEventListener("change",e=>{ const f=e.target.files&&e.target.files[0]; e.target.value=""; scanFile(f); });
+
+/* ---------------- SHOP VIEW ---------------- */
+function shopHTML(){
+  const week=shopWeek(), {list,hidden}=shopRows(week), stores=storeList();
+  const all=list.filter(r=>!r.got), got=list.filter(r=>r.got&&!r.cleared);
+  const inStore=r=>!shopStore||(shopStore==="__none"?!r.store:r.store===shopStore);
+  const need=all.filter(inStore);
+  const cnt=st=>all.filter(r=>st==="__none"?!r.store:r.store===st).length;
+  const extra=[...new Set(all.map(r=>r.store).filter(x=>x&&!stores.includes(x)))];
+  const chips=`<div class="chips" role="group" aria-label="Store"><button class="chip" data-sstore="" aria-pressed="${!shopStore}">All stores · ${all.length}</button>${[...stores,...extra].filter(st=>cnt(st)||st===shopStore).map(st=>`<button class="chip" data-sstore="${esc(st)}" aria-pressed="${shopStore===st}">${esc(st)} · ${cnt(st)}</button>`).join("")}${cnt("__none")?`<button class="chip" data-sstore="__none" aria-pressed="${shopStore==="__none"}">No store yet · ${cnt("__none")}</button>`:""}</div>`;
+  const rowH=r=>{ const src=[r.meal?[...new Set(r.sources)].join(", "):"", r.manual?(r.manual.by?`added by ${r.manual.by}`:"added")+(r.manual.notes?` · ${r.manual.notes}`:""):""].filter(Boolean).join(" · ");
+    return `<div class="srow ${r.got?"got":""}"><input type="checkbox" class="chk" data-shop="${esc(r.key)}" ${r.got?"checked":""} aria-label="Got ${esc(r.name)}">
+      <div style="min-width:0"><button class="body ${r.manual?"tap":""}" ${r.manual?`data-edit="${esc(r.manual.id)}"`:"tabindex=\"-1\""}><div class="nm">${esc(String(r.name).charAt(0).toUpperCase()+String(r.name).slice(1))}</div>${src?`<div class="sub">${esc(src)}</div>`:""}</button>
+      ${shopGroup==="store"&&r.store?"":`<button class="spill ${r.store?"":"none"}" data-storepick="${esc(r.key)}" aria-label="Store for ${esc(r.name)}: ${esc(r.store||"none")}">${r.store?esc(r.store):"+ store"}</button>`}</div><span class="need">${esc(r.need)}</span></div>`; };
+  const byAisle=rows=>{ const g={}; rows.forEach(r=>(g[r.aisle]=g[r.aisle]||[]).push(r)); return AISLES.filter(a=>g[a]).map(a=>`<div class="aisle"><span>${esc(a)}</span><span>${g[a].length}</span></div>${g[a].sort((x,y)=>x.name.localeCompare(y.name)).map(rowH).join("")}`).join(""); };
+  let body;
+  if(!need.length) body=`<div class="empty">${all.length?"Nothing to buy at this store.":"Nothing to buy. Plan dinners under <b>Meals</b> or tap <b>Add item</b>."}</div>`;
+  else if(shopGroup==="store"&&!shopStore){ const groups=[...stores,...extra].filter(st=>need.some(r=>r.store===st)); if(need.some(r=>!r.store)) groups.push("");
+    body=groups.map(st=>{ const rows=need.filter(r=>(r.store||"")===st); return `<div class="storeh">${esc(st||"No store yet")}<span>${rows.length} item${rows.length===1?"":"s"}</span></div>`+byAisle(rows); }).join(""); }
+  else body=byAisle(need);
+  const isNext=week===nextWeek();
+  return `<section class="panel"><div class="weekbar"><div class="seg" role="group" aria-label="Which week's dinners"><button data-sw="this" aria-pressed="${!isNext}">This week</button><button data-sw="next" aria-pressed="${isNext}">Next week</button></div>
+      <button class="btn primary sm" data-add="item" data-list="${GROC}">Add item</button></div>
+    <p class="hint" style="margin:10px 0">${all.length} to buy · ${isNext?"next week's":"the rest of this week's"} dinners plus anything you add${hidden.length?` · staples hidden: ${esc(hidden.join(", "))}`:""}</p>
+    ${chips}
+    <div class="row" style="margin-top:8px;justify-content:space-between"><label class="toggle" style="padding-left:0"><input type="checkbox" id="groupStore" ${shopGroup==="store"?"checked":""} ${shopStore?"disabled":""}> Group by store</label><span class="row" style="gap:12px"><button class="link" data-stores="1">Stores</button><button class="link" data-staples="1">Staples</button></span></div></section>
+  <section class="panel">${body}</section>
+  ${got.length?`<section class="panel"><div class="ph"><h2>Got it</h2><button class="btn sm" data-clearshop="1">Clear checked</button></div>${got.map(rowH).join("")}</section>`:""}`;
+}
+
+/* ======================================================================
+   LIST STATS
+   ====================================================================== */
+function stats(list){
+  let budget=0,spent=0,left=0,leftBudget=0,done=0;
+  for(const i of list){ budget+=i.est||0; if(i.bought){done++;spent+=(i.paid??i.est??0);} else {left++;leftBudget+=i.est||0;} }
+  return {budget,spent,left,leftBudget,done,total:list.length};
+}
+const waitingOnMe=()=>me?items.filter(i=>i.both&&!i.bought&&!names(i.doneBy).includes(me)):[];
+
+/* ======================================================================
+   RENDER
+   ====================================================================== */
+function badge(name){ if(!name) return ""; const i=people.indexOf(name); return `<span class="who ${i>=0?"p"+(i%2):""}" title="${esc(name)}">${esc(name.slice(0,1).toUpperCase())}</span>`; }
+function render(){
+  document.querySelectorAll("#nav [data-go]").forEach(b=>b.setAttribute("aria-current",b.dataset.go===view?"page":"false"));
+  $("#who").innerHTML = me&&people.includes(me) ? `${badge(me)}<span>You're <b>${esc(me)}</b></span>${linkMe?"":`<button data-switch="1">Switch</button>`}` : `<span style="padding-left:8px">Who's using this phone?</span>${people.map(p=>`<button data-me="${esc(p)}">${esc(p)}</button>`).join("")}`;
+  if(!loaded){ $("#view").innerHTML=""; return; }
+  $("#view").innerHTML = view==="home"?homeHTML(): view==="lists"?listsHTML(): view==="dates"?datesHTML(): view==="meals"?mealsHTML(): view==="shop"?shopHTML(): doneHTML();
+}
+
+/* ---------------- HOME ---------------- */
+function homeHTML(){
+  const cds=countdowns().filter(c=>!c.past), first=cds[0], rest=cds.slice(1,4), s=stats(items.filter(i=>i.cat!==GROC)), wm=waitingOnMe();
+  const weekAgo=ymd(new Date(parseD(todayStr()).getTime()-6*864e5));
+  const doneWeek=items.filter(i=>i.bought&&i.boughtAt&&ymd(new Date(i.boughtAt))>=weekAgo).length;
+  let html="";
+  if(first){ const b=bigCount(first), d=parseD(first.start);
+    html+=`<section class="hero" aria-label="Next countdown">
+      <div class="cal" aria-hidden="true"><i>${MON[d.getMonth()].toUpperCase()}</i><b>${d.getDate()}</b></div>
+      <div><div class="eyebrow">${first.now?"Happening now":"Next up"} · ${esc(kindLabel(first.kind))}</div><div class="nameline" style="padding-right:72px">${esc(first.name)}</div></div>
+      <div class="big"><b>${esc(b.n)}</b><span>${esc(b.u)}${!first.now?" to go":""}</span></div>
+      <div class="when">${esc(dateLabel(first))}${!first.now&&weeksText(first.days)?` · ${weeksText(first.days)}`:""}${first.place?` · ${esc(first.place)}`:""}</div>
+      ${rest.length?`<div class="next">${rest.map(c=>{const bb=bigCount(c);return `<button data-cd="${esc(c.id)}"><div class="n">${esc(bb.n)}<span style="font-size:.7em;font-weight:600"> ${c.now?"":esc(bb.u)}</span></div><div class="l">${esc(c.name)}</div></button>`;}).join("")}</div>`:""}
+    </section>`; }
+  { const wk=thisWeek(), d=parseD(todayStr()).getDay(), n=nightsOf(wk)[d], r=n&&n.recipe?recipeOf(n.recipe):null, toBuy=shopRows(shopWeek()).list.filter(x=>!x.got).length;
+    html+=`<section class="panel tonight"><div class="ic">${ICO.plate}</div><div style="min-width:0"><div class="muted" style="font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Tonight's dinner</div>
+      <div class="nm">${r?esc(r.name):n&&n.kind==="takeout"?"Takeout night":"Nothing planned"}</div><div class="muted" style="font-size:.84rem">${r&&r.minutes?`${r.minutes>=120?Math.round(r.minutes/60)+" hr":r.minutes+" min"} · `:""}${toBuy} thing${toBuy===1?"":"s"} on the shopping list</div></div>
+      <button class="link" data-go="${r||n?"meals":"meals"}">${r||n?"This week":"Plan meals"}</button></section>`; }
+  html+=`<div class="stats">
+    <div class="stat"><div class="k">Still to do</div><div class="v">${s.left}</div><div class="d">${s.done} of ${s.total} done${doneWeek?` · ${doneWeek} this week`:""}</div></div>
+    <div class="stat"><div class="k">Spent</div><div class="v money">${fmt(s.spent)}</div><div class="d">${s.budget?`of ${fmt(s.budget)} budgeted`:"Add budgets to items to track"}</div></div>
+    <div class="stat"><div class="k">Waiting on you</div><div class="v">${wm.length}</div><div class="d">${wm.length?"“Both of us” items":"Nothing waiting"}</div></div>
+  </div>`;
+  if(wm.length) html+=`<section class="panel"><div class="ph"><h2>Your part</h2><span class="muted">Both of you need to check these off</span></div>${wm.slice(0,5).map(itemRow).join("")}</section>`;
+  html+=`<section class="panel"><div class="ph"><h2>Your lists</h2><button class="link" data-go="lists">See all</button></div><div class="listgrid">${realLists().map(l=>{
+    const st=stats(items.filter(i=>i.cat===l.id)), pct=st.total?Math.round(st.done/st.total*100):0;
+    return `<button class="lcard" style="${catVars(l.id)}" data-openlist="${esc(l.id)}"><span class="nm">${esc(l.label)}</span><div class="bar"><i style="width:${pct}%"></i></div><span class="st"><span>${st.done}/${st.total} done</span><span class="money">${st.leftBudget?fmt(st.leftBudget)+" left":""}</span></span></button>`;}).join("")}
+    <button class="lcard new" data-add="list">+ New list</button></div></section>`;
+  if(cds.length>4) html+=`<section class="panel"><div class="ph"><h2>Coming up</h2><button class="link" data-go="dates">All dates</button></div><div class="cdgrid">${cds.slice(4,7).map(cdCard).join("")}</div></section>`;
+  return html;
+}
+
+/* ---------------- LISTS ---------------- */
+function listsHTML(){
+  if(listView!=="all"&&!listOf(listView)) listView="all";
+  const chips=`<div class="chips" role="group" aria-label="Lists"><button class="chip" data-lv="all" aria-pressed="${listView==="all"}">All lists</button>${realLists().map(l=>`<button class="chip" style="${catVars(l.id)}" data-lv="${esc(l.id)}" aria-pressed="${listView===l.id}"><i></i>${esc(l.label)}</button>`).join("")}<button class="chip dash" data-manage="1">${managing?"Done editing":"Edit lists"}</button></div>`;
+  const manage=managing?`<section class="panel"><div class="ph"><h2>Your lists</h2><span class="muted">Rename or delete · groceries live in Shop</span></div><div>${realLists().map(l=>{
+      const n=items.filter(i=>i.cat===l.id).length;
+      const nameCell=renaming===l.id?`<form data-renameform="${esc(l.id)}"><input id="rename-${esc(l.id)}" value="${esc(l.label)}" maxlength="40" aria-label="New name"></form>`:`<div><b>${esc(l.label)}</b> <span class="muted">· ${n} item${n===1?"":"s"}</span></div>`;
+      const acts=renaming===l.id?`<div><button class="btn link" data-renamecancel="1">Cancel</button><button class="btn primary sm" data-renamesave="${esc(l.id)}">Save</button></div>`:`<div><button class="btn link" data-rename="${esc(l.id)}">Rename</button><button class="btn link" data-dellist="${esc(l.id)}">Delete</button></div>`;
+      const conf=confirmList===l.id?`<div class="confirm">Delete “${esc(l.label)}”${n?` and its ${n} item${n===1?"":"s"}`:""}? This can't be undone. <button class="btn sm" data-keeplist="1">Keep it</button><button class="btn sm danger" data-yesdellist="${esc(l.id)}">Delete list</button></div>`:"";
+      return `<div class="lists-row" style="${catVars(l.id)}"><span class="dot"></span>${nameCell}${acts}${conf}</div>`;}).join("")}</div>
+      <div class="row" style="margin-top:10px"><button class="btn primary sm" data-add="list">New list</button></div></section>`:"";
+  const tools=`<div class="toolbar"><input type="search" id="q" value="${esc(q)}" placeholder="Search items" aria-label="Search items"><div class="tools"><button class="btn link" data-expand="1">Expand all</button><button class="btn link" data-collapse="1">Collapse all</button><label class="toggle"><input type="checkbox" id="showDone" ${showDone?"checked":""}> Show completed</label></div></div>`;
+  return chips+manage+tools+`<div id="listBody" style="display:flex;flex-direction:column;gap:24px">${listBody()}</div>`;
+}
+function listBody(){
+  if(listView===GROC) listView="all";
+  const cats=listView==="all"?realLists().map(l=>l.id):[listView], ql=q.trim().toLowerCase();
+  if(!items.filter(i=>i.cat!==GROC).length) return `<div class="empty">Nothing on the list yet. Tap <b>+</b> to add the first item.</div>`;
+  let html="";
+  for(const c of cats){
+    let list=items.filter(i=>i.cat===c); const s=stats(list);
+    if(!showDone) list=list.filter(i=>!i.bought);
+    if(ql) list=list.filter(i=>[i.name,i.section,i.store,i.notes].join(" ").toLowerCase().includes(ql));
+    const groups={}; list.slice().sort(sortItems).forEach(i=>{const g=i.section||"Other";(groups[g]=groups[g]||[]).push(i);});
+    const gn=Object.keys(groups).sort((a,b)=>a==="Other"?1:b==="Other"?-1:a.localeCompare(b));
+    const ck="cat:"+c, open=!collapsed.has(ck)||!!ql;
+    html+=`<section class="cat" style="${catVars(c)}"><button class="cat-h" data-col="${esc(ck)}" aria-expanded="${open}"><span class="hl"><span class="chev" style="color:var(--cc)"></span><h2>${esc(label(c))}</h2></span><span class="muted">${s.done} of ${s.total} done${s.budget?` · spent <span class="money">${fmt(s.spent)}</span> · <span class="money">${fmt(s.leftBudget)}</span> left`:""}</span></button>
+      ${!open?"":gn.length?gn.map(g=>{ const all=items.filter(i=>i.cat===c&&(i.section||"Other")===g), gs=stats(all), key="sec:"+c+":"+g, op=!collapsed.has(key)||!!ql, nb=groups[g].filter(i=>i.both&&!i.bought).length;
+        return `<div class="sec"><button class="sec-h" data-col="${esc(key)}" aria-expanded="${op}"><span class="hl"><span class="chev"></span>${esc(g)}</span><span>${nb?`<span class="bothnote">${nb} need${nb===1?"s":""} both · </span>`:""}${gs.done}/${gs.total}</span></button>${op?groups[g].map(itemRow).join(""):""}</div>`; }).join("")
+      :`<div class="empty">${ql?"No matches in this list.":s.total?"Everything here is done. Turn on “Show completed” to see it.":`No items yet. <button class="link" data-add="item" data-list="${esc(c)}">Add one</button>`}</div>`}</section>`;
+  }
+  return html;
+}
+function sortItems(a,b){ if(!!a.bought!==!!b.bought) return a.bought?1:-1; if((a.prio==="nice")!==(b.prio==="nice")) return a.prio==="nice"?1:-1; return (a.created||0)-(b.created||0); }
+function itemRow(i){
+  const st=i.store&&!isUrl(i.store)?`<span>${esc(i.store)}</span>`:"";
+  const link=i.store&&isUrl(i.store)?`<a class="olink" href="${esc(i.store)}" target="_blank" rel="noopener" aria-label="Open link for ${esc(i.name)}">Open link ↗</a>`:"";
+  const price=i.bought&&i.paid!=null?`<span><span class="money">${fmt(i.paid)}</span><small>paid${i.est!=null&&i.paid<i.est?` · saved ${fmt(i.est-i.paid)}`:""}</small></span>`:i.est!=null?`<span><span class="money">${fmt(i.est)}</span><small>budget</small></span>`:"";
+  const who=i.both?null:(i.bought?i.boughtBy:i.by), doneBy=names(i.doneBy), waiting=people.filter(p=>!doneBy.includes(p));
+  const control=i.both?`<div class="pair" role="group" aria-label="Who has finished ${esc(i.name)}">${people.map((p,k)=>{const on=doneBy.includes(p);return `<button class="pp p${k%2} ${on?"on":""} ${p===me?"mine":""}" data-pair="${esc(i.id)}" data-person="${esc(p)}" aria-pressed="${on}" title="${esc(p)}${on?" is done":" hasn't finished"}">${on?"✓":esc(p.slice(0,1).toUpperCase())}</button>`;}).join("")}</div>`
+    :`<input type="checkbox" class="chk" data-toggle="${esc(i.id)}" ${i.bought?"checked":""} aria-label="Done: ${esc(i.name)}">`;
+  const bothMeta=i.both?`<span class="pill both">Both of us</span>${waiting.length&&!i.bought?`<span class="wait">Waiting on ${esc(waiting.join(" & "))}</span>`:""}`:"";
+  return `<div class="item ${i.bought?"done":""}" style="${catVars(i.cat)}">${control}
+    <div style="min-width:0"><button class="body" data-edit="${esc(i.id)}" aria-label="Edit ${esc(i.name)}"><div class="nm2">${esc(i.name)}</div><div class="meta">${bothMeta}${i.prio==="nice"?`<span>Nice to have</span>`:`<span class="pill">Must</span>`}${st}${i.notes?`<span>${esc(i.notes)}</span>`:""}</div></button>${link}</div>
+    <div class="price">${price}${badge(who)}</div></div>`;
+}
+
+/* ---------------- DATES ---------------- */
+function cdCard(c){
+  const b=bigCount(c), ev=!c.builtin, lst=c.list&&listOf(c.list)?(()=>{const st=stats(items.filter(i=>i.cat===c.list));return `<div class="prog">${esc(label(c.list))}: ${st.done}/${st.total} done</div>`;})():"";
+  return `<button class="cd k-${esc(c.kind)} ${c.now?"now":""}" data-cd="${esc(c.id)}" aria-label="${esc(c.name)}, ${esc(b.n)} ${esc(b.u)}"><div class="days"><b>${esc(b.n.replace("Day ",""))}</b><small>${c.now?(c.end?`of ${c.length}`:"today"):esc(b.u)}</small></div>
+    <div class="nm">${esc(c.name)}</div><div class="dt">${esc(dateLabel(c))}${!c.now&&!c.past&&weeksText(c.days)?` · ${weeksText(c.days)}`:""}</div>
+    <div class="tag"><span class="tagpill">${esc(kindLabel(c.kind))}</span>${c.yearly?`<span class="muted">Every year</span>`:""}${c.place?`<span class="muted">${esc(c.place)}</span>`:""}</div>${lst}</button>`;
+}
+function datesHTML(){
+  const all=countdowns(), up=all.filter(c=>!c.past), past=all.filter(c=>c.past&&!c.builtin), hide=hiddenHol(), mine=up.filter(c=>!c.builtin);
+  return `<section class="panel"><div class="ph"><h2>Countdowns</h2><button class="btn primary sm" data-add="event">Add event</button></div>
+    ${up.length?`<div class="cdgrid">${up.map(cdCard).join("")}</div>`:`<div class="empty">Nothing coming up.</div>`}
+    ${!mine.length?`<p class="hint" style="margin-top:12px">Add a party, concert, vacation or birthday and it counts down here with the holidays.</p>`:""}</section>
+    <section class="panel"><div class="ph"><h2>Holidays</h2><span class="muted">Dates update every year · uncheck to hide for both of you</span></div>
+      <div class="hol">${HOLIDAYS.map(([k,n,fn])=>{ const d=parseD(nextHoliday(fn)); return `<label><input type="checkbox" data-hol="${k}" ${hide.has(k)?"":"checked"}><span>${esc(n)}</span><span class="d">${MON[d.getMonth()]} ${d.getDate()}</span></label>`; }).join("")}</div></section>
+    ${past.length?`<section class="panel"><div class="ph"><h2>Past events</h2><button class="link" data-past="1">${showPast?"Hide":"Show "+past.length}</button></div>${showPast?`<div class="cdgrid">${past.map(cdCard).join("")}</div>`:""}</section>`:""}`;
+}
+
+/* ---------------- DONE ---------------- */
+function doneHTML(){
+  const d=items.filter(i=>i.bought).sort((a,b)=>(b.boughtAt||0)-(a.boughtAt||0));
+  if(!d.length) return `<div class="empty">Nothing checked off yet.</div>`;
+  let html="", day=null;
+  d.slice(0,150).forEach(i=>{ const dd=i.boughtAt?ymd(new Date(i.boughtAt)):"";
+    if(dd!==day){ day=dd; const diff=dd?diffDays(dd,todayStr()):null; html+=`<div class="dayh">${!dd?"Earlier":diff===0?"Today":diff===1?"Yesterday":(()=>{const x=parseD(dd);return `${DOW[x.getDay()]}, ${MON[x.getMonth()]} ${x.getDate()}`;})()}</div>`; }
+    html+=`<div class="drow" style="${catVars(i.cat)}"><input type="checkbox" class="chk" data-toggle="${esc(i.id)}" checked aria-label="Undo: ${esc(i.name)}"><div style="min-width:0"><div class="nm">${esc(i.name)}</div><div class="sub">${esc(label(i.cat))}${i.section?` · ${esc(i.section)}`:""}${i.paid!=null?` · <span class="money">${fmt(i.paid)}</span>`:""}</div></div>${badge(i.boughtBy)}</div>`; });
+  const s=stats(items);
+  return `<section class="panel"><div class="ph"><h2>Done</h2><span class="muted">${s.done} item${s.done===1?"":"s"} · ${fmt(s.spent)} spent · uncheck to undo</span></div><div class="dlist">${html}</div></section>`;
+}
+
+/* ======================================================================
+   SHEETS
+   ====================================================================== */
+const KINDS=[["party","Party"],["concert","Concert"],["vacation","Vacation"],["birthday","Birthday"],["appointment","Appointment"],["other","Other"]];
+function openSheet(kind,o={}){ S={kind,mode:o.rec?"edit":"add",rec:o.rec||null,vals:Object.assign({},o.vals||{}),err:"",confirmDel:false}; $("#scrim").hidden=false; renderSheet();
+  setTimeout(()=>{ const a=$("#sheet .bigname"); if(a&&S&&S.mode==="add") a.focus(); },40); }
+function closeSheet(){ $("#scrim").hidden=true; S=null; }
+$("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeSheet(); });
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&S) closeSheet(); });
+const fInp=(k,lab,type,val,extra="",cls="")=>`<label class="f ${cls}">${lab}<input data-k="${k}" type="${type}" value="${esc(val??"")}" ${extra}></label>`;
+const fSel=(k,lab,list,val,cls="")=>`<label class="f ${cls}">${lab}<select data-k="${k}">${list.map(([v,l])=>`<option value="${esc(v)}" ${v===val?"selected":""}>${esc(l)}</option>`).join("")}</select></label>`;
+function renderSheet(){
+  if(!S) return; const v=S.vals, k=S.kind, ed=S.mode==="edit"; let title="", body="", del=false;
+  if(k==="item" && v.cat===GROC){
+    title=ed?"Edit grocery item":"Add to Shop";
+    body=`<input class="bigname" data-k="name" value="${esc(v.name??"")}" placeholder="e.g. Paper towels" maxlength="120" aria-label="Item">
+      <div class="grid2">${fSel("store","Store",[["","Any store"],...[...new Set([...storeList(),...(v.store&&!isUrl(v.store)?[v.store]:[])])].map(x=>[x,x])],v.store??(shopStore&&shopStore!=="__none"?shopStore:""))}${fSel("section","Aisle",[["","Pick automatically"],...AISLES.map(a=>[a,a])],AISLES.includes(v.section)?v.section:"")}
+      ${fInp("notes","Note","text",v.notes,`placeholder="e.g. 2 gallons" maxlength="300"`,"full")}
+      ${fSel("cat","List",[[GROC,"Groceries (Shop)"],...realLists().map(l=>[l.id,l.label])],GROC,"full")}</div>`;
+    del=ed;
+  } else if(k==="item"){
+    v.cat??=(listView!=="all"&&listOf(listView)&&listView!==GROC?listView:(realLists()[0]||{}).id); v.prio??="must";
+    const secs=[...new Set(items.filter(i=>i.cat===v.cat).map(i=>i.section).filter(Boolean))].sort();
+    title=ed?"Edit item":"Add";
+    body=`<input class="bigname" data-k="name" value="${esc(v.name??"")}" placeholder="What do you need?" maxlength="120" aria-label="Item">
+      <div class="grid2">${fSel("cat","List",[...realLists().map(l=>[l.id,l.label]),[GROC,"Groceries (Shop)"]],v.cat)}${fInp("section","Group","text",v.section,`list="secList" placeholder="e.g. Nursery" maxlength="40"`)}
+      ${fInp("est","Budget ($)","text",v.est,`inputmode="decimal" placeholder="0"`)}${ed?fInp("paid","Paid ($)","text",v.paid,`inputmode="decimal" placeholder="Actual price"`):fSel("prio","Priority",[["must","Must have"],["nice","Nice to have"]],v.prio)}
+      ${ed?fSel("prio","Priority",[["must","Must have"],["nice","Nice to have"]],v.prio,"full"):""}
+      ${fInp("store","Store or link","text",v.store,`placeholder="Target, or paste a link" maxlength="300"`,"full")}
+      ${fInp("notes","Notes","text",v.notes,`placeholder="Size, color, model, deal to watch for…" maxlength="300"`,"full")}</div>
+      <datalist id="secList">${secs.map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
+      <label class="cb"><input type="checkbox" data-k="both" ${v.both?"checked":""}> Both of us have to check this off</label>`;
+    del=ed;
+  }
+  if(k==="event"){
+    v.kind??="party"; v.start??="";
+    title=ed?"Edit event":"Add";
+    body=`<input class="bigname" data-k="name" value="${esc(v.name??"")}" placeholder="e.g. Taylor's birthday party" maxlength="80" aria-label="Event name">
+      <div class="seg" role="group" aria-label="Kind of event">${KINDS.map(([id,l])=>`<button type="button" data-ekind="${id}" aria-pressed="${v.kind===id}">${l}</button>`).join("")}</div>
+      <div class="grid2">${fInp("start",v.kind==="vacation"?"First day":"Date","date",v.start)}${fInp("end",v.kind==="vacation"?"Last day":"Ends (optional)","date",v.end)}
+      ${fInp("time","Time (optional)","time",v.time)}${fInp("place","Where (optional)","text",v.place,`maxlength="120"`)}
+      ${fSel("list","Linked list (optional)",[["","None"],...realLists().map(l=>[l.id,l.label])],v.list||"","full")}
+      ${fInp("notes","Notes","text",v.notes,`maxlength="300"`,"full")}</div>
+      <label class="cb"><input type="checkbox" data-k="yearly" ${v.yearly||(v.yearly==null&&v.kind==="birthday")?"checked":""}> Repeats every year</label>
+      <p class="hint">Link a list, like a packing list for a trip, and its progress shows on the countdown.</p>`;
+    del=ed;
+  }
+  if(k==="recipe"){
+    v.tags??=[]; v.servings??=4;
+    title=ed?"Edit recipe":"Add recipe";
+      body=`${v.scanned?`<div class="notice">Read from your photo. Check the name, ingredients and steps, then save.</div>`:!ed?`<button type="button" class="btn" data-scan="1">${ICO.cam} Fill in from a photo</button>`:""}
+      <input class="bigname" data-k="name" value="${esc(v.name??"")}" placeholder="Recipe name" maxlength="80" aria-label="Recipe name">
+      ${ed&&v.link?`<a class="link" href="${esc(v.link)}" target="_blank" rel="noopener">Open the full recipe ↗</a>`:""}
+      <div class="tagpick" role="group" aria-label="Tags">${TAGS.map(t=>`<button type="button" data-tag="${esc(t)}" aria-pressed="${v.tags.includes(t)}">${esc(t)}</button>`).join("")}</div>
+      <div class="grid2">${fInp("servings","Serves","number",v.servings,`min="1" max="20" inputmode="numeric"`)}${fInp("minutes","Minutes","number",v.minutes,`min="0" inputmode="numeric" placeholder="30"`)}
+      <label class="f full">Ingredients, one per line<textarea data-k="ingredients" rows="7" placeholder="2 cans black beans&#10;1 lb chicken breast&#10;1 cup rice">${esc(v.ingredients||"")}</textarea></label>
+      <p class="hint full" id="ingPreview">${ingPreview(v.ingredients)}</p>
+      <label class="f full">Steps (optional)<textarea data-k="steps" rows="4">${esc(v.steps||"")}</textarea></label>
+      ${fInp("link","Recipe link (optional)","url",v.link,`placeholder="https://…" maxlength="500"`,"full")}</div>
+      ${ed?`<div class="f">How do you like it?<div class="seg" role="group" aria-label="Rating"><button type="button" data-fav="1" aria-pressed="${v.fav>0}">★ Favorite</button><button type="button" data-fav="0" aria-pressed="${!v.fav}">Okay</button><button type="button" data-fav="-1" aria-pressed="${v.fav<0}">Not for us</button></div></div><p class="hint">Favorites come up 3× as often. “Not for us” is never drawn.</p>`:""}`;
+    del=ed;
+  }
+  if(k==="night"){
+    const week=v.week, d=v.day, R=rules(); v.kind??="meal";
+    title=`${DAYS[d]}, ${(()=>{const x=parseD(addD(week,d));return MON[x.getMonth()]+" "+x.getDate();})()}`;
+    body=`<div class="seg" role="group" aria-label="Dinner"><button type="button" data-nkind="meal" aria-pressed="${v.kind==="meal"}">Recipe</button><button type="button" data-nkind="takeout" aria-pressed="${v.kind==="takeout"}">Takeout</button><button type="button" data-nkind="skip" aria-pressed="${v.kind==="skip"}">No dinner</button></div>
+      ${v.kind==="meal"?`<input type="search" id="npick" placeholder="Search recipes" aria-label="Search recipes" style="font-size:16px;background:var(--sunk);border:1px solid var(--line);border-radius:10px;padding:9px 11px">
+      <div class="pick" id="pickList">${pickHTML(v.recipe,"")}</div>
+      <div class="grid2">${fInp("servings","Servings","number",v.servings||"",`min="1" max="20" inputmode="numeric" placeholder="${R.servings}"`)}${fSel("cook","Who's cooking",[["","Not set"],...people.map(p=>[p,p])],v.cook||"")}</div>
+      <label class="cb"><input type="checkbox" data-k="leftovers" ${v.leftovers?"checked":""}> Make extra for leftovers (doubles the shopping amounts)</label>`:""}
+      <label class="cb"><input type="checkbox" data-k="locked" ${v.locked?"checked":""}> Lock this night so “Plan my week” keeps it</label>`;
+  }
+  if(k==="rules"){
+    const R=Object.assign(rules(),v.R||{}); v.R=R;
+    title="Plan my week rules";
+    const opts=[["any","Any recipe"],["Quick","Quick"],["Vegetarian","Vegetarian"],["Vegan","Vegan"],["Pescatarian","Pescatarian"],["Kid-friendly","Kid-friendly"],["Slow cooker","Slow cooker"],["takeout","Takeout"],["skip","No dinner"]];
+    body=`<div class="f">Every dinner must be<div class="tagpick" role="group" aria-label="Household diet">${DIETS.map(t=>`<button type="button" data-diet="${esc(t)}" aria-pressed="${R.diet.includes(t)}">${esc(t)}</button>`).join("")}</div></div>
+      <div class="rules">${DAYS.map((dn,i)=>fSel("day"+i,dn,opts,R.days[i])).join("")}</div>
+      <div class="grid2">${fInp("rservings","Default servings","number",R.servings,`min="1" max="20" inputmode="numeric"`)}</div>
+      <label class="cb"><input type="checkbox" data-k="noRepeat" ${R.noRepeat?"checked":""}> Avoid repeating last week's dinners</label>
+      <p class="hint">Rules apply when you tap Plan my week. Locked nights are never changed.</p>`;
+  }
+  if(k==="storepick"){ const r=shopRows(shopWeek()).list.find(x=>x.key===v.key); v.cur??=(r&&r.store)||"";
+    title=`Where do you buy ${r?String(r.name):"this"}?`;
+    body=`<div class="pick">${[...storeList(),""].map(st=>`<button type="button" data-spick="${esc(st)}" aria-pressed="${v.cur===st}"><span>${esc(st||"Any store")}</span></button>`).join("")}</div>
+      <p class="hint">The app remembers this, so it's tagged the same way next time.</p><button type="button" class="link" data-stores="1" style="align-self:flex-start">Edit store list</button>`; }
+  if(k==="stores"){ title="Your stores"; v.text??=storeList().join("\n");
+    body=`<label class="f">One store per line, in the order you want them<textarea data-k="text" rows="10">${esc(v.text)}</textarea></label>`; }
+  if(k==="staples"){ title="Pantry staples"; v.text??=staples().join("\n");
+    body=`<label class="f">Things you always have, one per line<textarea data-k="text" rows="7">${esc(v.text)}</textarea></label><p class="hint">These never show up on the shopping list, even when a recipe uses them.</p>`; }
+  if(k==="list"){ title="New list"; body=`<input class="bigname" data-k="name" value="${esc(v.name??"")}" placeholder="e.g. Christmas gifts" maxlength="40" aria-label="List name"><p class="hint">Lists get their own color and show up on Home.</p>`; }
+  const kinds=!ed&&["item","event","list"].includes(k)&&v.cat!==GROC?`<div class="seg" role="group" aria-label="What to add">${[["item","Item"],["event","Countdown"],["list","List"]].map(([id,l])=>`<button type="button" data-kind="${id}" aria-pressed="${id===k}">${l}</button>`).join("")}</div>`:"";
+  const conf=S.confirmDel?`<div class="confirm">${k==="event"?"Delete this event?":k==="recipe"?"Delete this recipe?":"Delete this item?"} <button type="button" class="btn sm" data-nodel="1">Keep</button><button type="button" class="btn sm danger" data-yesdel="1">Delete</button></div>`:"";
+  $("#sheet").innerHTML=`<div class="sheet-h"><h2 id="sheetTitle">${esc(title)}</h2><button type="button" class="iconbtn" data-close="1" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>${kinds}
+    <form id="sForm" style="display:flex;flex-direction:column;gap:12px" novalidate>${body}<div class="err" role="alert">${esc(S.err)}</div>${conf}
+    <div class="sticky-actions">${del?`<button type="button" class="btn ghost" data-del="1" style="margin-right:auto">Delete</button>`:""}${k==="night"&&(v.recipe||v.kind!=="meal")?`<button type="button" class="btn ghost" data-clearnight="1" style="margin-right:auto">Clear night</button>`:""}${k==="storepick"?"":`<button class="btn primary" type="submit" id="sSave">${ed||["night","rules","staples","stores"].includes(k)?"Save":k==="list"?"Create list":k==="recipe"?"Add recipe":"Add"}</button>`}</div></form>`;
+}
+function ingPreview(t){ const ing=String(t||"").split("\n").map(x=>x.trim()).filter(Boolean).map(parseIng);
+  return ing.length?`Shop will list: ${ing.slice(0,6).map(g=>`${esc(g.name)} (${esc(g.aisle)})`).join(", ")}${ing.length>6?"…":""}`:""; }
+function pickHTML(sel,q){ q=String(q||"").toLowerCase(); const R=rules();
+  const list=recipes.filter(r=>r.fav>=0||r.id===sel).filter(r=>!q||r.name.toLowerCase().includes(q)).sort((a,b)=>(b.id===sel)-(a.id===sel)||(b.fav-a.fav)||a.name.localeCompare(b.name));
+  return list.map(r=>{ const ok=R.diet.every(t=>tagsOf(r).has(t)); return `<button type="button" data-rpick="${esc(r.id)}" aria-pressed="${r.id===sel}"><span>${r.fav>0?"★ ":""}${esc(r.name)}</span><span class="muted" style="font-size:.8rem">${ok?"":"outside your diet rules · "}${r.minutes?r.minutes+" min":""}</span></button>`; }).join("")||`<div class="empty">No recipes match.</div>`; }
+function grab(){ if(!S) return; document.querySelectorAll("#sheet [data-k]").forEach(el=>{ S.vals[el.dataset.k]=el.type==="checkbox"?el.checked:el.value; }); }
+function grabRules(){ grab(); const v=S.vals, R=v.R; for(let i=0;i<7;i++) if(v["day"+i]!=null) R.days[i]=v["day"+i]; if(v.rservings!=null) R.servings=Math.max(1,Math.min(20,parseInt(v.rservings)||2)); if(v.noRepeat!=null) R.noRepeat=!!v.noRepeat; }
+function rerender(){ const sc=$("#sheet").scrollTop; renderSheet(); $("#sheet").scrollTop=sc; }
+
+$("#sheet").addEventListener("click",async e=>{
+  const b=e.target.closest("button"); if(!b||!S) return; const ds=b.dataset;
+  if(ds.close) return closeSheet();
+  if(ds.scan){ grab(); $("#scanInput").click(); return; }
+  if(ds.kind){ grab(); const keep={name:S.vals.name}; S.kind=ds.kind; S.vals=keep; S.err=""; return renderSheet(); }
+  if(ds.ekind){ grab(); S.vals.kind=ds.ekind; if(ds.ekind==="birthday") S.vals.yearly=true; return rerender(); }
+  if(ds.spick!==undefined && S.kind==="storepick"){ const st=ds.spick, key=S.vals.key, r=shopRows(shopWeek()).list.find(x=>x.key===key);
+    if(r&&r.manual){ r.manual.store=st; write("updateItem",r.manual.id,{store:st||null}); }
+    if(r&&!key.startsWith("m:")){ settings.storeFor=Object.assign({},storeFor()); if(st) settings.storeFor[key]=st; else delete settings.storeFor[key]; write("setStoreFor",key,st); }
+    else if(r&&r.manual){ const nk=normKey(r.manual.name); if(nk){ settings.storeFor=Object.assign({},storeFor()); if(st) settings.storeFor[nk]=st; else delete settings.storeFor[nk]; write("setStoreFor",nk,st); } }
+    closeSheet(); const sc=scrollY; render(); scrollTo(0,sc); toast(st?`${r?r.name:"Item"} → ${st}`:"Any store"); return; }
+  if(ds.stores){ openSheet("stores",{vals:{}}); return; }
+  if(ds.tag){ grab(); const t=ds.tag, a=S.vals.tags||(S.vals.tags=[]); const i=a.indexOf(t); i<0?a.push(t):a.splice(i,1); return rerender(); }
+  if(ds.fav!==undefined && S.kind==="recipe"){ const f=+ds.fav; S.vals.fav=f; rerender(); write("setFavorite",S.rec.id,f).then(ok=>ok&&toast(f>0?"Added to favorites":f<0?"Won't be drawn again":"Rating cleared")); return; }
+  if(ds.nkind){ grab(); S.vals.kind=ds.nkind; return rerender(); }
+  if(ds.rpick){ S.vals.recipe=ds.rpick; document.querySelectorAll("#pickList [data-rpick]").forEach(x=>x.setAttribute("aria-pressed",x.dataset.rpick===ds.rpick)); return; }
+  if(ds.diet){ grabRules(); const a=S.vals.R.diet, i=a.indexOf(ds.diet); i<0?a.push(ds.diet):a.splice(i,1); return rerender(); }
+  if(ds.clearnight){ b.disabled=true; const {week,day}=S.vals; const ok=await write("setNight",week,day,blankNight()); if(ok){ closeSheet(); toast("Night cleared"); } return; }
+  if(ds.del){ S.confirmDel=true; return rerender(); }
+  if(ds.nodel){ S.confirmDel=false; return rerender(); }
+  if(ds.yesdel){ b.disabled=true; const k=S.kind, id=S.rec.id;
+    if(k==="item"){ items=items.filter(i=>i.id!==id); closeSheet(); render(); write("deleteItem",id).then(ok=>ok&&toast("Deleted")); }
+    else if(k==="recipe"){ const ok=await write("deleteRecipe",id); if(ok){ closeSheet(); toast("Recipe deleted"); } }
+    else { const ok=await write("deleteEvent",id); if(ok){ closeSheet(); toast("Event deleted"); } } return; }
+});
+$("#sheet").addEventListener("change",e=>{ if(!S) return; if(e.target.dataset.k==="cat"||e.target.dataset.k==="yearly"){ grab(); rerender(); } });
+$("#sheet").addEventListener("input",e=>{ if(!S) return; if(e.target.id==="npick"){ $("#pickList").innerHTML=pickHTML(S.vals.recipe,e.target.value); }
+  if(e.target.dataset.k==="ingredients"){ const pv=$("#ingPreview"); if(pv) pv.innerHTML=ingPreview(e.target.value); } });   // only the preview line updates, so typing is never interrupted
+$("#sheet").addEventListener("submit",async e=>{
+  e.preventDefault(); if(!S) return; grab(); const v=S.vals, k=S.kind;
+  if(k==="night"){ const btn=$("#sSave"); btn.disabled=true; btn.textContent="Saving…";
+    const n={kind:v.kind,recipe:v.kind==="meal"?(v.recipe||""):"",servings:parseInt(v.servings)||0,leftovers:!!v.leftovers,locked:!!v.locked,cook:v.cook||""};
+    const ok=await write("setNight",v.week,v.day,n); if(ok){ closeSheet(); toast("Saved"); } else if(S){ S.err=write.lastErr; renderSheet(); } return; }
+  if(k==="rules"){ grabRules(); const ok=await write("setSetting","mealRules",S.vals.R); if(ok){ closeSheet(); toast("Rules saved"); } return; }
+  if(k==="stores"){ const arr=[...new Set(String(v.text||"").split(/[\n,]/).map(x=>x.trim()).filter(Boolean))].slice(0,40); if(!arr.length){ S.err="Add at least one store."; return rerender(); } const ok=await write("setSetting","stores",arr); if(ok){ closeSheet(); toast("Stores saved"); } return; }
+  if(k==="staples"){ const arr=String(v.text||"").split(/[\n,]/).map(x=>x.trim()).filter(Boolean).slice(0,80); const ok=await write("setSetting","staples",arr); if(ok){ closeSheet(); toast("Staples saved"); } return; }
+  if(k==="recipe"){ const r={name:String(v.name||"").trim(),tags:v.tags||[],servings:parseInt(v.servings)||4,minutes:parseInt(v.minutes)||0,ingredients:v.ingredients||"",steps:v.steps||"",link:v.link||"",by:me};
+    if(!r.name){ S.err="Name the recipe."; return rerender(); } if(!String(r.ingredients).trim()){ S.err="Add at least one ingredient."; return rerender(); }
+    const btn=$("#sSave"); btn.disabled=true; btn.textContent="Saving…";
+    const ok=S.mode==="edit"?await write("updateRecipe",S.rec.id,r):await write("addRecipe",r);
+    if(ok){ closeSheet(); toast(S&&S.mode==="edit"?"Recipe saved":"Recipe added"); } else if(S){ S.err=write.lastErr; renderSheet(); } return; }
+  const name=String(v.name||"").trim(); if(!name){ S.err=k==="list"?"Name the list.":k==="event"?"Name the event.":"What's the item?"; return rerender(); }
+  const btn=$("#sSave"); btn.disabled=true; btn.textContent="Saving…";
+  let ok=false, msg="";
+  if(k==="item"){
+    const f={name,cat:v.cat,section:String(v.section||"").trim()||null,est:num(v.est),store:String(v.store||"").trim()||null,notes:String(v.notes||"").trim()||null,prio:v.prio,both:!!v.both};
+    if(f.cat===GROC && !f.store){ const sf=storeFor()[normKey(name)]; if(sf) f.store=sf; }
+    if(S.mode==="edit"){ f.paid=num(v.paid); ok=await write("updateItem",S.rec.id,f); msg="Saved"; }
+    else { f.by=me; f.doneBy=null; if(f.cat===GROC&&!f.section) f.section=guessAisle(f.name); ok=await write("addItem",f); msg=f.cat===GROC?"Added to Shop":`Added to ${label(f.cat)}`; if(ok){ S.vals={cat:f.cat,section:f.cat===GROC?"":f.section,store:f.cat===GROC?(v.store||""):undefined}; } }
+  }
+  if(k==="event"){
+    if(!v.start){ S.err="Pick a date."; btn.disabled=false; btn.textContent=S.mode==="edit"?"Save":"Add"; return rerender(); }
+    const ev={name,kind:v.kind,start:v.start,end:v.end||"",time:v.time||"",place:v.place||"",notes:v.notes||"",yearly:!!v.yearly,list:v.list||"",by:me};
+    ok = S.mode==="edit" ? await write("updateEvent",S.rec.id,ev) : await write("addEvent",ev); msg=S.mode==="edit"?"Event saved":"Countdown added";
+    if(ok){ closeSheet(); view="dates"; render(); toast(msg); return; }
+  }
+  if(k==="list"){ ok=await write("addList",name); msg=`Added “${name}”`; if(ok){ const l=lists.find(x=>x.label===name); closeSheet(); if(l){ listView=l.id; view="lists"; render(); } toast(msg); return; } }
+  if(!S) return;
+  if(ok){ if(S.mode==="edit"){ closeSheet(); toast(msg); } else { toast(msg+". Add another or close."); renderSheet(); setTimeout(()=>{const a=$("#sheet .bigname"); a&&a.focus();},30); } }
+  else { S.err=write.lastErr||"Couldn't save. Check your connection and try again."; renderSheet(); }
+});
+
+/* ======================================================================
+   DATA
+   ====================================================================== */
+function apply(d){
+  if(!d) return;
+  people=d.people||people; lists=d.lists||lists; due=d.due||due; events=d.events||[]; today=d.today||today;
+  recipes=d.recipes||recipes; plan=d.plan||[]; checks=d.checks||[]; settings=d.settings||{};
+  if(d.appName){ $("#appName").textContent=d.appName; document.title=d.appName; }
+  if(linkMe){ const hit=people.find(p=>p.toLowerCase()===linkMe.toLowerCase()); if(hit){ me=hit; store.set("me",me); } }
+  items=d.items||[]; loaded=true; setStatus("");
+  $("#asof").textContent="Updated "+new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+  if(renaming&&!listOf(renaming)) renaming=null;
+  const ae=document.activeElement; const typing=ae&&ae.id==="q"; const pos=typing?ae.selectionStart:0;
+  if(!renaming){ const sc=scrollY; render(); scrollTo(0,sc); }
+  if(typing){ const n=$("#q"); if(n){ n.focus(); try{n.setSelectionRange(pos,pos);}catch(_){} } }
+}
+async function refresh(){
+  if(busy||S) return; const b=$("#refreshBtn"); b.classList.add("spin");
+  try{ const d=await call("getData"); if(!busy&&!S) apply(d); }
+  catch(e){ if(!loaded) setStatus("Couldn't load your lists. Check your connection and reload."); }
+  b.classList.remove("spin");
+}
+async function write(fn,...args){
+  busy++;
+  try{ const d=await call(fn,...args); busy--; if(busy===0) apply(d); return true; }   // only the newest reply repaints, so quick taps aren't undone
+  catch(e){ busy--; write.lastErr=String((e&&e.message)||e).replace(/^Error:\s*/,""); toast(write.lastErr); refresh(); return false; }
+}
+
+/* ======================================================================
+   EVENTS
+   ====================================================================== */
+document.addEventListener("click",async e=>{
+  if(e.target.closest("#sheet")) return;
+  const b=e.target.closest("button"); if(!b) return; const ds=b.dataset;
+  if(ds.go){ view=ds.go; store.set("view",view); render(); scrollTo(0,0); return; }
+  if(ds.add){ const vals={}; if(ds.list) vals.cat=ds.list; openSheet(ds.add,{vals}); return; }
+  if(ds.me){ me=ds.me; store.set("me",me); toast(`Hi ${me}`); render(); return; }
+  if(ds.switch){ me=null; render(); return; }
+  if(ds.openlist){ listView=ds.openlist; view="lists"; render(); scrollTo(0,0); return; }
+  if(ds.lv){ listView=ds.lv; render(); return; }
+  if(ds.manage){ managing=!managing; renaming=null; confirmList=null; render(); return; }
+  if(ds.expand){ collapsed.clear(); saveCollapsed(); $("#listBody").innerHTML=listBody(); return; }
+  if(ds.collapse){ items.forEach(i=>collapsed.add("sec:"+i.cat+":"+(i.section||"Other"))); saveCollapsed(); $("#listBody").innerHTML=listBody(); return; }
+  if(ds.col){ const k=ds.col; collapsed.has(k)?collapsed.delete(k):collapsed.add(k); saveCollapsed(); $("#listBody").innerHTML=listBody(); const again=[...document.querySelectorAll("[data-col]")].find(x=>x.dataset.col===k); again&&again.focus(); return; }
+  if(ds.edit){ const i=items.find(x=>x.id===ds.edit); if(i) openSheet("item",{rec:i,vals:{name:i.name,cat:i.cat,section:i.section,est:i.est,paid:i.paid,store:i.store,notes:i.notes,prio:i.prio||"must",both:i.both}}); return; }
+  if(ds.cd){ const c=countdowns().find(x=>x.id===ds.cd); if(!c) return;
+    if(c.builtin){ view="dates"; render(); scrollTo(0,0); return; }
+    const ev=events.find(x=>x.id===c.id); if(ev) openSheet("event",{rec:ev,vals:Object.assign({},ev)}); return; }
+  if(ds.past){ showPast=!showPast; render(); return; }
+  if(ds.mw){ mealWk=ds.mw; planMsg=""; render(); return; }
+  if(ds.sw){ shopWk=ds.sw; render(); return; }
+  if(ds.sstore!==undefined && b.hasAttribute("data-sstore")){ shopStore=ds.sstore; store.set("shopStore",shopStore); render(); return; }
+  if(ds.storepick){ openSheet("storepick",{vals:{key:ds.storepick}}); return; }
+  if(ds.stores){ openSheet("stores",{vals:{}}); return; }
+  if(ds.rtag!==undefined && b.hasAttribute("data-rtag")){ rtag=ds.rtag; render(); return; }
+  if(ds.recipe){ const r=recipeOf(ds.recipe); if(r) openSheet("recipe",{rec:r,vals:{name:r.name,tags:[...(r.tags||[])],servings:r.servings,minutes:r.minutes||"",ingredients:r.ingredients,steps:r.steps,link:r.link,fav:r.fav}}); return; }
+  if(ds.rules){ openSheet("rules",{vals:{}}); return; }
+  if(ds.scan){ $("#scanInput").click(); return; }
+  if(ds.rboxall){ rboxAll=true; render(); return; }
+  if(ds.staples){ openSheet("staples",{vals:{}}); return; }
+  if(ds.planweek){ const week=mealWk==="next"?nextWeek():thisWeek(); if(!recipes.length){ toast("Add a recipe first"); return; }
+    const {out,missing}=drawWeek(week); planMsg=missing.length?`No recipe fits the rules for ${missing.join(", ")}. Add recipes or loosen the rules.`:"";
+    plan=plan.filter(p=>p.week!==week).concat(out.map((n,i)=>Object.assign({},n,{week,day:i}))); render();
+    write("setWeekPlan",week,out).then(ok=>ok&&toast("Week planned")); return; }
+  if(ds.nmode){ const week=mealWk==="next"?nextWeek():thisWeek(), d=+ds.d, cur=nightsOf(week)[d]||blankNight(), mode=cur.kind==="skip"?"blank":cur.locked?"lock":"redraw";
+    let n;
+    if(ds.nmode==="lock"){ if(cur.kind!=="meal"&&cur.kind!=="takeout"||(cur.kind==="meal"&&!cur.recipe)){ toast("Nothing to lock yet. Pick or draw a dinner first"); return; }
+      n=Object.assign({},cur,{locked:mode!=="lock"}); toast(n.locked?"Locked":"Will redraw"); }
+    else if(ds.nmode==="blank"){ n=mode==="blank"?blankNight():Object.assign(blankNight(),{kind:"skip",cook:cur.cook}); toast(mode==="blank"?"Will redraw":"Left blank"); }
+    else { // redraw: unlock / un-blank, and pick something right away
+      const base=Object.assign({},cur,{locked:false}); if(base.kind==="skip") Object.assign(base,{kind:"meal",recipe:""});
+      plan=plan.filter(p=>!(p.week===week&&p.day===d)).concat([Object.assign({},base,{week,day:d})]);
+      n=rerollNight(week,d); if(!n){ n=base; toast("No other recipe fits that night's rules"); } }
+    plan=plan.filter(p=>!(p.week===week&&p.day===d)).concat([Object.assign({},n,{week,day:d})]); const sc=scrollY; render(); scrollTo(0,sc);
+    write("setNight",week,d,n); return; }
+  if(ds.night!==undefined && b.hasAttribute("data-night")){ const week=mealWk==="next"?nextWeek():thisWeek(), d=+ds.night, n=nightsOf(week)[d]||blankNight(); openSheet("night",{vals:Object.assign({},n,{week,day:d})}); return; }
+  if(ds.clearshop){ const week=shopWeek();   // clear on screen right away, save in the background
+    items=items.filter(i=>!(i.cat===GROC&&i.bought));
+    checks=checks.map(c=>c.week===week&&!String(c.key).startsWith("x:")?Object.assign({},c,{key:"x:"+c.key}):c);
+    const sc=scrollY; render(); scrollTo(0,sc); toast("Cleared");
+    write("clearBoughtGroceries",week); return; }
+  if(ds.pair){ const it=items.find(i=>i.id===ds.pair), person=ds.person; if(!it) return;
+    if(!me||!people.includes(me)){ toast("Pick who you are at the top first"); return; }
+    if(person!==me){ toast(`Only ${person} can check off their part`); return; }
+    let d=names(it.doneBy); const done=!d.includes(me); d=done?[...d,me]:d.filter(n=>n!==me);
+    it.doneBy=people.filter(p=>d.includes(p)).join(", "); it.bought=people.every(p=>d.includes(p)); render();
+    write("markDone",it.id,me,done).then(ok=>{ if(ok&&it.bought) toast("Both done. Moved to Done."); }); return; }
+  if(ds.rename){ renaming=ds.rename; confirmList=null; render(); const i=$("#rename-"+CSS.escape(renaming)); i&&(i.focus(),i.select()); return; }
+  if(ds.renamecancel){ renaming=null; render(); return; }
+  if(ds.renamesave){ saveRename(ds.renamesave); return; }
+  if(ds.dellist){ confirmList=ds.dellist; renaming=null; render(); return; }
+  if(ds.keeplist){ confirmList=null; render(); return; }
+  if(ds.yesdellist){ const id=ds.yesdellist, nm=label(id); confirmList=null; if(listView===id) listView="all"; if(await write("deleteList",id)) toast(`Deleted “${nm}”`); return; }
+});
+async function saveRename(id){ const inp=$("#rename-"+CSS.escape(id)), name=inp?inp.value.trim():""; if(!name) return; renaming=null; if(await write("renameList",id,name)) toast("Renamed"); }
+document.addEventListener("submit",e=>{ const f=e.target.closest("[data-renameform]"); if(f){ e.preventDefault(); saveRename(f.dataset.renameform); } });
+document.addEventListener("change",e=>{
+  const el=e.target; if(el.closest("#sheet")) return;
+  if(el.dataset.toggle){ const it=items.find(i=>i.id===el.dataset.toggle); if(!it) return; const bought=el.checked;
+    const patch=bought?{bought:true,boughtBy:me,boughtAt:Date.now(),paid:it.paid??it.est??null}:{bought:false,boughtBy:null,boughtAt:null};
+    Object.assign(it,patch); render(); write("updateItem",it.id,patch).then(ok=>{ if(ok&&!bought) toast("Moved back to the list"); }); return; }
+  if(el.dataset.shop){ const week=shopWeek(), key=el.dataset.shop, on=el.checked, r=shopRows(week).list.find(x=>x.key===key); if(!r) return;
+    if(r.meal){ checks=checks.filter(c=>!(c.week===week&&c.key===key)); if(on) checks.push({week,key,by:me}); }
+    if(r.manual){ Object.assign(r.manual,on?{bought:true,boughtBy:me,boughtAt:Date.now()}:{bought:false,boughtBy:null,boughtAt:null}); }
+    const sc=scrollY; render(); scrollTo(0,sc);
+    if(r.meal) write("setShopCheck",week,key,on,me);
+    if(r.manual) write("updateItem",r.manual.id,on?{bought:true,boughtBy:me,boughtAt:Date.now()}:{bought:false,boughtBy:null,boughtAt:null});
+    return; }
+  if(el.id==="groupStore"){ shopGroup=el.checked?"store":"aisle"; store.set("shopGroup",shopGroup); render(); return; }
+  if(el.id==="showDone"){ showDone=el.checked; store.set("showDone",showDone?"1":"0"); $("#listBody").innerHTML=listBody(); return; }
+  if(el.dataset.hol){ const key=el.dataset.hol, show=el.checked, sc=scrollY;
+    events=events.filter(e=>!(e.kind==="hidden"&&e.id==="hide-"+key));            // update the screen right away
+    if(!show) events.push({id:"hide-"+key,name:key,kind:"hidden"});
+    render(); scrollTo(0,sc);
+    write("setHoliday",key,show); return; }
+});
+document.addEventListener("input",e=>{ if(e.target.id==="q"){ q=e.target.value; $("#listBody").innerHTML=listBody(); }
+  if(e.target.id==="rsearch"){ rsearch=e.target.value; const qq=rsearch.trim().toLowerCase(); $("#rbox").innerHTML=rboxHTML(recipes.filter(r=>(!rtag||(rtag==="Favorites"?r.fav>0:tagsOf(r).has(rtag)))&&(!qq||(r.name+" "+r.ingredients).toLowerCase().includes(qq))).sort((a,b)=>(b.fav-a.fav)||a.name.localeCompare(b.name))); } });
+$("#refreshBtn").addEventListener("click",()=>refresh());
+
+/* ======================================================================
+   BOOT
+   ====================================================================== */
+me=store.get("me");
+{ const v=store.get("view"); if(["home","lists","dates","meals","shop","done"].includes(v)) view=v; }
+showDone=store.get("showDone")==="1"; shopStore=store.get("shopStore")||""; shopGroup=store.get("shopGroup")==="store"?"store":"aisle";
+try{ collapsed=new Set(JSON.parse(store.get("collapsed")||"[]")); }catch(_){ collapsed=new Set(); }
+/* Personal links (…/exec?me=yourname) remember who's using the phone even when the phone clears saved data. */
+try{ google.script.url.getLocation(l=>{ const m=l&&l.parameter&&l.parameter.me; if(m){ linkMe=String(m); const hit=people.find(p=>p.toLowerCase()===linkMe.toLowerCase()); if(hit){ me=hit; store.set("me",me); render(); } } }); }catch(_){}
+render();
+refresh();
+setInterval(()=>{ if(!document.hidden) refresh(); },POLL_MS);
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden) refresh(); });
+</script>
+</body>
+</html>
