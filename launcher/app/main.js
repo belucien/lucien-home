@@ -319,14 +319,15 @@ async function checkGitHub() {
     if (!r.ok) throw new Error("GitHub said " + r.status);
     const rel = await r.json();
     const v = String(rel.tag_name || "").replace(/^v/i, "");
-    const asset = (rel.assets || []).find(a => SETUP_RE.test(a.name) && !/family/i.test(a.name));
+    // GitHub turns spaces in file names into dots, so accept "Lucien Home Setup", "Lucien.Home.Setup" and "Lucien-Home-Setup"
+    const asset = (rel.assets || []).find(a => /^Lucien[ ._-]Home[ ._-]Setup[ ._-]\d+\.\d+\.\d+\.exe$/i.test(a.name) && !/family/i.test(a.name));
     ghError = ""; ghInfo = asset ? { version: v, notes: String(rel.body || "").trim().slice(0, 4000), url: asset.browser_download_url, size: asset.size, name: asset.name, digest: asset.digest || "" } : null;
     if (ghInfo && newer(v, app.getVersion()) && !localUpdate() && !dl) download(ghInfo);
   } catch (e) { ghError = "Couldn't check GitHub right now."; }
 }
 async function download(info) {
   fs.mkdirSync(UPDIR(), { recursive: true });
-  const final = path.join(UPDIR(), info.name), part = final + ".part";
+  const final = path.join(UPDIR(), `Lucien Home Setup ${info.version}.exe`), part = final + ".part";
   dl = { version: info.version, notes: info.notes, progress: 0 }; publish(false);
   try {
     const r = await net.fetch(info.url, { headers: { "User-Agent": "Lucien-Home" } });
@@ -344,7 +345,7 @@ async function download(info) {
     if (info.size && got !== info.size) throw new Error("incomplete download");
     if (info.digest && /^sha256:/i.test(info.digest) && hash.digest("hex") !== info.digest.slice(7).toLowerCase()) throw new Error("checksum mismatch");
     fs.renameSync(part, final);
-    try { fs.readdirSync(UPDIR()).forEach(f => { if (f !== info.name) fs.unlinkSync(path.join(UPDIR(), f)); }); } catch (e) {}
+    try { fs.readdirSync(UPDIR()).forEach(f => { if (f !== path.basename(final)) fs.unlinkSync(path.join(UPDIR(), f)); }); } catch (e) {}
   } catch (e) { try { fs.unlinkSync(part); } catch (er) {} ghError = "The update download didn't finish. It will try again later."; }
   dl = null; publish(false);
 }
