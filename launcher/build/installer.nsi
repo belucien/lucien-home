@@ -2,7 +2,9 @@
 Unicode true
 !define PRODUCT "Lucien Home"
 !define EXE "Lucien Home.exe"
-!define VERSION "2.0.0"
+!ifndef VERSION
+  !define VERSION "2.0.0"
+!endif
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\LucienHome"
 Name "${PRODUCT}"
 !ifdef FAMILY

@@ -4,3 +4,4 @@ family.json
 node_modules/
 launcher/build/stage/
 launcher/build/out/
+launcher/build/new.exe
