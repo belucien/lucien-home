@@ -46,8 +46,19 @@ VIAddVersionKey "LegalCopyright" "Lucien family"
 
 Function .onInit
   ; close a running copy so its files can be replaced (updates install over the top and keep your settings)
-  nsExec::Exec 'taskkill /IM "${EXE}" /F /T'
-  Sleep 1200
+  ; (no /T: the update installer is started by Lucien Home, and /T would close the installer itself too)
+  nsExec::Exec 'taskkill /IM "${EXE}" /F'
+  StrCpy $R9 0
+  waitclosed:
+    Sleep 500
+    nsExec::ExecToStack 'cmd /d /c tasklist /FI "IMAGENAME eq ${EXE}" /NH | find /I "${EXE}"'
+    Pop $0
+    Pop $1
+    StrCmp $0 "0" 0 closed
+    IntOp $R9 $R9 + 1
+    IntCmp $R9 20 closed waitclosed closed
+  closed:
+  Sleep 500
 FunctionEnd
 
 Section "Install"

@@ -394,7 +394,9 @@ function installUpdate() {
   const u = localUpdate();
   if (!u) return { ok: false, msg: dl ? "Still downloading the update." : "No newer version found." };
   if (!isWin) return { ok: false, msg: "Updating from inside the launcher works on Windows." };
-  try { const child = spawn(u.file, ["/S", "/RELAUNCH"], { detached: true, stdio: "ignore", windowsHide: true }); child.unref(); }
+  // started through "cmd start" so the installer isn't a child of Lucien Home (closing Lucien Home must not close the installer)
+  try { const child = spawn(process.env.ComSpec || "cmd.exe", ["/d /c start \"\" \"" + u.file + "\" /S /RELAUNCH"], { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: true });
+    child.on("error", () => {}); child.unref(); }
   catch (e) { return { ok: false, msg: "Couldn't start the installer: " + e.message }; }
   settings.updatedFrom = app.getVersion(); save();
   setTimeout(() => { quitting = true; app.quit(); }, 700);
