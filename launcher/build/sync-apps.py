@@ -12,7 +12,7 @@ for k, src in SRC.items():
     s = re.sub(r'\(prefers-color-scheme:\s*dark\)', 'all', s)
     s = re.sub(r'\(prefers-color-scheme:\s*light\)', 'not all', s)
     s = s.replace('matchMedia("all")', 'matchMedia("(min-width:0px)")')
-    s = s.replace('me=Brandon', 'me=yourname')
+    s = re.sub(r'([?&])me=[A-Z][a-z]+\b', r'\1me=yourname', s)   # no real names in the shared copy
     d = OUT / k; d.mkdir(parents=True, exist_ok=True)
     (d / 'index.html').write_text(s, encoding='utf-8')
     print(k, len(s))

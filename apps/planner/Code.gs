@@ -51,7 +51,7 @@ function showPersonalLinks() {
   PEOPLE.forEach(p => Logger.log(p + ': ' + url + '?me=' + encodeURIComponent(p)));
 }
 
-const APP_VERSION = '2026.11.06';   // changes with each update
+const APP_VERSION = '2026.11.09';   // changes with each update
 
 /* Lucien Home (desktop launcher) saves through here: POST {api:'rpc', fn, args}.
    Only the functions the app's own screens use are allowed. */
@@ -132,8 +132,9 @@ function authorizeScanner() {
 /* ======================= MEAL PLANNER ======================= */
 /* Weeks start on Sunday. A plan row = one night: kind "meal" | "takeout" | "skip". */
 const RECIPES = 'Recipes', PLAN = 'MealPlan', CHECKS = 'MealChecks', SETTINGS = 'Settings';
-const RC_COLS = ['id', 'name', 'tags', 'servings', 'minutes', 'ingredients', 'steps', 'link', 'fav', 'by', 'created'];
-const PL_COLS = ['week', 'day', 'kind', 'recipe', 'servings', 'leftovers', 'locked', 'cook'];
+const RC_COLS = ['id', 'name', 'tags', 'servings', 'minutes', 'ingredients', 'steps', 'link', 'fav', 'by', 'created', 'type'];
+const MEAL_TYPES = ['dinner', 'breakfast', 'drink'];   // a recipe is one of these; only dinners are drawn
+const PL_COLS = ['week', 'day', 'kind', 'recipe', 'servings', 'leftovers', 'locked', 'cook', 'slot'];   // slot: dinner (blank), breakfast or drink
 const CK_COLS = ['week', 'key', 'by', 'at'];
 const TAGS = ['Vegan', 'Vegetarian', 'Pescatarian', 'Dairy-free', 'Gluten-free', 'Quick', 'Kid-friendly', 'Slow cooker'];
 
@@ -177,7 +178,7 @@ function recipesSheet_() {
     const rows = STARTER_RECIPES.map((r, i) => RC_COLS.map(c => ({ id: 'r' + String(i + 1).padStart(2, '0'), name: r[0], tags: r[1],
       servings: 4, minutes: r[2], ingredients: r[3], steps: '', link: '', fav: 0, by: '', created: i + 1 })[c]));
     sh.getRange(2, 1, rows.length, RC_COLS.length).setValues(rows);
-  }
+  } else ensureHeaders_(sh, RC_COLS);
   return sh;
 }
 function readRecipes_() {
@@ -188,6 +189,7 @@ function readRecipes_() {
     o.id = String(o.id); o.name = String(o.name); o.tags = String(o.tags || '').split(',').map(t => t.trim()).filter(Boolean);
     o.servings = Number(o.servings) || 4; o.minutes = Number(o.minutes) || 0; o.fav = Number(o.fav) || 0;
     o.ingredients = String(o.ingredients || ''); o.steps = String(o.steps || ''); o.link = String(o.link || '');
+    o.type = MEAL_TYPES.indexOf(String(o.type)) > 0 ? String(o.type) : 'dinner';
     return o;
   });
 }
@@ -202,7 +204,7 @@ function cleanRecipe_(r) {
   if (!ingredients) throw new Error('Add at least one ingredient.');
   const link = String(r.link || '').trim();
   return { name, tags: tags.join(','), servings, minutes, ingredients, steps: String(r.steps || '').slice(0, 4000),
-           link: /^https?:\/\//i.test(link) ? link.slice(0, 500) : '' };
+           link: /^https?:\/\//i.test(link) ? link.slice(0, 500) : '', type: MEAL_TYPES.indexOf(r.type) >= 0 ? r.type : 'dinner' };
 }
 function addRecipe(r) {
   const o = cleanRecipe_(r);
@@ -245,22 +247,24 @@ function readPlan_(weeks) {
     o.week = dateText_(o.week); o.day = Number(o.day); o.recipe = String(o.recipe || ''); o.kind = String(o.kind || 'meal');
     o.servings = Number(o.servings) || 0; o.leftovers = o.leftovers === true || String(o.leftovers).toUpperCase() === 'TRUE';
     o.locked = o.locked === true || String(o.locked).toUpperCase() === 'TRUE'; o.cook = String(o.cook || '');
+    o.slot = slotOf_(o.slot);
     return o;
   }).filter(o => weeks.indexOf(o.week) >= 0);
 }
+const slotOf_ = s => (s === 'breakfast' || s === 'drink') ? s : 'dinner';
 function cleanNight_(d) {
   d = d || {};
   const kind = ['meal', 'takeout', 'skip'].indexOf(d.kind) >= 0 ? d.kind : 'meal';
   return { kind, recipe: kind === 'meal' ? String(d.recipe || '').slice(0, 20) : '', servings: Math.max(0, Math.min(20, Math.round(Number(d.servings) || 0))),
-           leftovers: !!d.leftovers, locked: !!d.locked, cook: PEOPLE.indexOf(d.cook) >= 0 ? d.cook : '' };
+           leftovers: !!d.leftovers, locked: !!d.locked, cook: PEOPLE.indexOf(d.cook) >= 0 ? d.cook : '', slot: slotOf_(d.slot) === 'dinner' ? '' : slotOf_(d.slot) };
 }
 /* Replace a whole week: nights = 7 objects, Sunday first. */
 function setWeekPlan(week, nights) {
   week = String(week || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(week)) throw new Error('Bad week.');
   if (!Array.isArray(nights) || nights.length !== 7) throw new Error('A week needs 7 nights.');
   return withLock_(() => {
-    const sh = planSheet_(); deleteWhere_(sh, PL_COLS, r => dateText_(r[0]) === week);
-    nights.forEach((d, i) => { const o = cleanNight_(d); o.week = "'" + week; o.day = i; sh.appendRow(PL_COLS.map(c => o[c])); });
+    const sh = planSheet_(); deleteWhere_(sh, PL_COLS, r => dateText_(r[0]) === week && slotOf_(r[8]) === 'dinner');   // breakfasts and drinks stay
+    nights.forEach((d, i) => { const o = cleanNight_(Object.assign({}, d, { slot: '' })); o.week = "'" + week; o.day = i; sh.appendRow(PL_COLS.map(c => o[c])); });
     return state_();
   });
 }
@@ -268,8 +272,10 @@ function setNight(week, day, d) {
   week = String(week || ''); day = Number(day);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(week) || !(day >= 0 && day <= 6)) throw new Error('Bad night.');
   return withLock_(() => {
-    const sh = planSheet_(); deleteWhere_(sh, PL_COLS, r => dateText_(r[0]) === week && Number(r[1]) === day);
-    const o = cleanNight_(d); o.week = "'" + week; o.day = day; sh.appendRow(PL_COLS.map(c => o[c]));
+    const slot = slotOf_(d && d.slot);
+    const sh = planSheet_(); deleteWhere_(sh, PL_COLS, r => dateText_(r[0]) === week && Number(r[1]) === day && slotOf_(r[8]) === slot);
+    const o = cleanNight_(d);
+    if (slot === 'dinner' || o.recipe) { o.week = "'" + week; o.day = day; sh.appendRow(PL_COLS.map(c => o[c])); }   // an empty breakfast / drink is just removed
     return state_();
   });
 }
@@ -346,7 +352,13 @@ function setStoreFor(key, store) {
 function simpleSheet_(name, cols) {
   const ss = ss_(); let sh = ss.getSheetByName(name);
   if (!sh) { sh = ss.insertSheet(name); sh.getRange(1, 1, 1, cols.length).setValues([cols]).setFontWeight('bold'); sh.setFrozenRows(1); }
+  else ensureHeaders_(sh, cols);
   return sh;
+}
+/* Older sheets get any new column header added (e.g. 'slot', 'type'). */
+function ensureHeaders_(sh, cols) {
+  const head = sh.getRange(1, 1, 1, cols.length).getValues()[0];
+  cols.forEach((c, i) => { if (String(head[i] || '') === '') sh.getRange(1, i + 1).setValue(c).setFontWeight('bold'); });
 }
 function deleteWhere_(sh, cols, test) {
   const n = sh.getLastRow() - 1; if (n < 1) return;

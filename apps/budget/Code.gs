@@ -38,8 +38,8 @@ const TABS = {
   CategoryBudgets: ['Person', 'Month', 'Category', 'Budget'],
   Goals:           ['Id', 'Name', 'Owner', 'Target', 'Target Date', 'Starting', 'Created', 'Archived'],
   GoalMoves:       ['Goal Id', 'Date', 'Person', 'Amount', 'Note'],
-  Bills:           ['Id', 'Name', 'Owner', 'Amount', 'Frequency', 'Start Date', 'Category', 'Sub-category', 'Method', 'Autopay', 'Notes', 'Split'],
-  BillPaid:        ['Bill Id', 'Due Date', 'Paid Date', 'Person', 'Amount'],
+  Bills:           ['Id', 'Name', 'Owner', 'Amount', 'Frequency', 'Start Date', 'Category', 'Sub-category', 'Method', 'Autopay', 'Notes', 'Split', 'Paid By'],
+  BillPaid:        ['Bill Id', 'Due Date', 'Paid Date', 'Person', 'Amount', 'How'],
   Loans:           ['Id', 'Person', 'Name', 'Kind', 'Lender', 'Original', 'Balance', 'As Of Date', 'APR', 'Payment', 'Due Day', 'Start Date'],
   LoanPayments:    ['Loan Id', 'Date', 'Person', 'Amount', 'Note']
 };
@@ -50,7 +50,7 @@ const LOCK_MINUTES = 15;      // …per this many minutes, for everyone
 
 /* ================= web app ================= */
 
-const APP_VERSION = '2026.11.06';   // shown at the bottom of the app. Code.gs and Index.html should match.
+const APP_VERSION = '2026.11.09';   // shown at the bottom of the app. Code.gs and Index.html should match.
 
 function appName_() {
   const pr = PropertiesService.getScriptProperties();
@@ -78,12 +78,13 @@ function summaryJson_(p) {
   try {
     if (!p.u) throw new Error('LINK: Use your personal link (the one with ?u=) in the launcher.');
     const who = auth_('t:' + p.u);
+    try { runAutopay_(); } catch (e) {}
     out = Object.assign(loadAll_(), { me: who, app: 'budget', appName: appName_().display, version: APP_VERSION });
   } catch (err) { out = { error: String((err && err.message) || err) }; }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
-const RPC = { unlock, getAll, addTransaction, addPay, setBudget, setCategoryBudget, addCard, addGoal, addGoalMove, addBill, markBillPaid, addLoan, addLoanPayment, updateRow, deleteRow, setAppName };   // shorthand: each name is the app's own function
+const RPC = { unlock, getAll, addTransaction, addPay, setBudget, setCategoryBudget, addCard, addGoal, addGoalMove, addBill, markBillPaid, addLoan, addLoanPayment, updateRow, deleteRow, setAppName, rememberDevice };   // shorthand: each name is the app's own function
 
 /* Launcher sign-in: POST {api:'connect', pin, person}. Checks the PIN (same lockout as the app) and returns
    that person's personal-link code, so the launcher never has to show or ask for a personal link. */
@@ -103,6 +104,14 @@ function doPost(e) {
     out = { ok: true, token: tokenFor_(who), me: who, people: PEOPLE, version: APP_VERSION };
   } catch (err) { out = { error: String((err && err.message) || err) }; }
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/* "Remember on this device" in the app: right PIN + who → that person's personal-link code. */
+function rememberDevice(pin, person) {
+  if (/^t:/.test(String(pin || ''))) throw new Error('Already remembered.');
+  checkPin_(String(pin || ''));
+  if (PEOPLE.indexOf(person) < 0) throw new Error("Pick who's using this phone first.");
+  return tokenFor_(person);
 }
 
 /* The person's existing personal-link code, or a new one (other people's links keep working). */
@@ -197,8 +206,8 @@ function safeEqual_(a, b) {
 
 /* ================= API (each call needs the PIN) ================= */
 
-function unlock(pin) { const who = auth_(pin); return Object.assign(loadAll_(), { me: who }); }
-function getAll(pin) { auth_(pin); return loadAll_(); }
+function unlock(pin) { const who = auth_(pin); try { runAutopay_(); } catch (e) {} return Object.assign(loadAll_(), { me: who }); }
+function getAll(pin) { auth_(pin); try { runAutopay_(); } catch (e) {} return loadAll_(); }
 
 /* t = {person, date, amount, category, sub, method, desc, type, split?:{pct}}
    split.pct = the other person's share in percent; saves two rows. */
@@ -320,30 +329,80 @@ function markBillPaid(pin, p) {
     const bill = readTab_('Bills').find(x => x.Id === p.billId);
     if (!bill) throw new Error('That bill was deleted.');
     if (readTab_('BillPaid').some(x => x['Bill Id'] === bill.Id && x['Due Date'] === due)) throw new Error('Already marked paid.');
-    appendRow_('BillPaid', { 'Bill Id': bill.Id, 'Due Date': "'" + due, 'Paid Date': date, 'Person': person, 'Amount': amount });
-    if (p.log) {
-      let who = bill.Owner === HOUSEHOLD ? person : bill.Owner;
-      if (bill.Category === 'Credit Card') {   // a card payment belongs to the card's owner, so it lowers that card's balance
-        const card = readTab_('CreditCards').find(c => c['Card Name'] === bill['Sub-category'] && (bill.Owner === HOUSEHOLD || c.Person === bill.Owner));
-        if (card) who = card.Person;
-      }
-      const split = bill.Owner === HOUSEHOLD && bill.Category !== 'Credit Card' && (bill.Split === true || String(bill.Split).toUpperCase() === 'TRUE');
-      if (split) {   // one spending row per person, even shares (cents left over go to the payer)
-        const each = Math.floor(amount / PEOPLE.length * 100) / 100;
-        PEOPLE.forEach(pp => {
-          const amt = pp === person ? Math.round((amount - each * (PEOPLE.length - 1)) * 100) / 100 : each;
-          appendRow_('Transactions', txnRow_(cleanTxn_({ person: pp, date, amount: amt, category: bill.Category, sub: bill['Sub-category'],
-            method: PAYMENT_METHODS.indexOf(p.method) >= 0 ? p.method : (bill.Method || PAYMENT_METHODS[0]), desc: bill.Name + ' (split)', type: 'Expense' })));
-        });
-        return loadAll_();
-      }
-      const t = bill.Category === 'Credit Card'
-        ? cleanTxn_({ person: who, date, amount: -amount, category: 'Credit Card', sub: bill['Sub-category'], method: 'Credit Card', desc: bill.Name + ' (bill)', type: 'Debt' })
-        : cleanTxn_({ person: who, date, amount, category: bill.Category, sub: bill['Sub-category'], method: PAYMENT_METHODS.indexOf(p.method) >= 0 ? p.method : (bill.Method || PAYMENT_METHODS[0]), desc: bill.Name, type: 'Expense' });
-      appendRow_('Transactions', txnRow_(t));
-    }
+    payBill_(bill, due, date, amount, person, !!p.log, p.method, 'Marked paid');
     return loadAll_();
   });
+}
+
+/* Records one bill payment and (log) the matching spending: split bills give each person their share. */
+function payBill_(bill, due, date, amount, person, log, method, how) {
+  appendRow_('BillPaid', { 'Bill Id': bill.Id, 'Due Date': "'" + due, 'Paid Date': date, 'Person': person, 'Amount': amount, 'How': how || '' });
+  if (!log) return;
+  const pay = PAYMENT_METHODS.indexOf(method) >= 0 ? method : (bill.Method || PAYMENT_METHODS[0]);
+  let who = bill.Owner === HOUSEHOLD ? person : bill.Owner;
+  if (bill.Category === 'Credit Card') {   // a card payment belongs to the card's owner, so it lowers that card's balance
+    const card = readTab_('CreditCards').find(c => c['Card Name'] === bill['Sub-category'] && (bill.Owner === HOUSEHOLD || c.Person === bill.Owner));
+    if (card) who = card.Person;
+  }
+  const split = bill.Owner === HOUSEHOLD && bill.Category !== 'Credit Card' && truthy_(bill.Split);
+  const tag = how === 'Autopay' ? ' (autopay)' : '';
+  if (split) {   // one spending row per person, even shares (cents left over go to the payer)
+    const each = Math.floor(amount / PEOPLE.length * 100) / 100;
+    PEOPLE.forEach(pp => {
+      const amt = pp === person ? Math.round((amount - each * (PEOPLE.length - 1)) * 100) / 100 : each;
+      appendRow_('Transactions', txnRow_(cleanTxn_({ person: pp, date, amount: amt, category: bill.Category, sub: bill['Sub-category'], method: pay, desc: bill.Name + ' (split)' + tag, type: 'Expense' })));
+    });
+    return;
+  }
+  const t = bill.Category === 'Credit Card'
+    ? cleanTxn_({ person: who, date, amount: -amount, category: 'Credit Card', sub: bill['Sub-category'], method: 'Credit Card', desc: bill.Name + ' (bill)' + tag, type: 'Debt' })
+    : cleanTxn_({ person: who, date, amount, category: bill.Category, sub: bill['Sub-category'], method: pay, desc: bill.Name + tag, type: 'Expense' });
+  appendRow_('Transactions', txnRow_(t));
+}
+const truthy_ = v => v === true || String(v).toUpperCase() === 'TRUE';
+
+/* Autopay: on (or after) its due date an autopay bill records itself as paid and logs the spending,
+   split between you when Split is on. Runs whenever anyone opens the app; never repeats a payment.
+   Only due dates from two weeks before this feature first ran are caught up, so old history isn't back-filled. */
+function runAutopay_() {
+  const cache = CacheService.getScriptCache();
+  if (cache.get('autopay-ran')) return;
+  const pr = PropertiesService.getScriptProperties();
+  let since = pr.getProperty('AUTOPAY_SINCE');
+  if (!since) { const d = new Date(); d.setDate(d.getDate() - 14); since = Utilities.formatDate(d, ss_().getSpreadsheetTimeZone(), 'yyyy-MM-dd'); pr.setProperty('AUTOPAY_SINCE', since); }
+  const today = today_();
+  withLock_(() => {
+    const bills = readTab_('Bills').filter(b => truthy_(b.Autopay));
+    if (!bills.length) return;
+    const paid = {}; readTab_('BillPaid').forEach(x => { paid[x['Bill Id'] + '|' + x['Due Date']] = true; });
+    bills.forEach(b => {
+      const payer = b.Owner === HOUSEHOLD ? (PEOPLE.indexOf(b['Paid By']) >= 0 ? b['Paid By'] : PEOPLE[0]) : b.Owner;
+      occurrences_(b, since, today).forEach(due => {
+        if (paid[b.Id + '|' + due]) return;
+        payBill_(b, due, due, Number(b.Amount) || 0, payer, true, b.Method, 'Autopay');
+        paid[b.Id + '|' + due] = true;
+      });
+    });
+  });
+  cache.put('autopay-ran', '1', 600);   // at most every 10 minutes
+}
+/* Due dates of a bill between from and to (yyyy-MM-dd), same rules as the app's Dates screen. */
+function occurrences_(b, from, to) {
+  const out = [], st = String(b['Start Date'] || '').replace(/^'/, '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(st)) return out;
+  const f = b.Frequency;
+  if (f === 'One-time') { if (st >= from && st <= to) out.push(st); return out; }
+  const months = { Monthly: 1, Quarterly: 3, Yearly: 12 }[f], days = { Weekly: 7, Biweekly: 14 }[f];
+  if (!months && !days) return out;
+  const [y, m, d] = st.split('-').map(Number), pad = n => (n < 10 ? '0' : '') + n;
+  for (let i = 0; i < 1200; i++) {
+    let s;
+    if (months) { const t = new Date(y, m - 1 + i * months, 1), last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate(); s = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(Math.min(d, last)); }
+    else { const t = new Date(y, m - 1, d + i * days); s = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate()); }
+    if (s > to) break;
+    if (s >= from) out.push(s);
+  }
+  return out;
 }
 
 /* ---------- loans ---------- */
@@ -386,7 +445,8 @@ function cleanBill_(b) {
            'Frequency': oneOf_(b.frequency, BILL_FREQS, 'how often'), 'Start Date': "'" + date_(b.start),
            'Category': cat, 'Sub-category': sub, 'Method': PAYMENT_METHODS.indexOf(b.method) >= 0 ? b.method : '',
            'Autopay': !!b.autopay, 'Notes': String(b.notes || '').trim().slice(0, 200),
-           'Split': owner === HOUSEHOLD && cat !== 'Credit Card' && !!b.split };   // split = each person carries an even share
+           'Split': owner === HOUSEHOLD && cat !== 'Credit Card' && !!b.split,   // split = each person carries an even share
+           'Paid By': PEOPLE.indexOf(b.paidBy) >= 0 ? b.paidBy : '' };          // whose account autopay comes out of (household bills)
 }
 function cleanLoan_(l) {
   l = l || {};
@@ -486,8 +546,8 @@ function loadAll_() {
     bills: readTab_('Bills').map(r => pack(r, { id: r.Id, name: r.Name, owner: r.Owner, amount: num_(r.Amount), frequency: r.Frequency,
       start: r['Start Date'], category: r.Category, sub: r['Sub-category'], method: r.Method, notes: r.Notes,
       autopay: r.Autopay === true || String(r.Autopay).toUpperCase() === 'TRUE',
-      split: r.Split === true || String(r.Split).toUpperCase() === 'TRUE' })),
-    billPaid: readTab_('BillPaid').map(r => pack(r, { billId: r['Bill Id'], due: r['Due Date'], date: r['Paid Date'], person: r.Person, amount: num_(r.Amount) })),
+      split: r.Split === true || String(r.Split).toUpperCase() === 'TRUE', paidBy: r['Paid By'] || '' })),
+    billPaid: readTab_('BillPaid').map(r => pack(r, { billId: r['Bill Id'], due: r['Due Date'], date: r['Paid Date'], person: r.Person, amount: num_(r.Amount), how: r.How || '' })),
     loans: readTab_('Loans').map(r => pack(r, { id: r.Id, person: r.Person, name: r.Name, kind: r.Kind, lender: r.Lender, original: num_(r.Original),
       balance: num_(r.Balance), asOf: r['As Of Date'], apr: num_(r.APR), payment: num_(r.Payment), dueDay: num_(r['Due Day']), start: r['Start Date'] })),
     loanPayments: readTab_('LoanPayments').map(r => pack(r, { loanId: r['Loan Id'], date: r.Date, person: r.Person, amount: num_(r.Amount), note: r.Note }))

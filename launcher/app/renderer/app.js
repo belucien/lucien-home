@@ -66,19 +66,20 @@ function render() {
 function appBar() {
   const a = S.app, bar = $("#appbar"); bar.hidden = !a.open; if (!a.open) return;
   const web = a.open === "web", host = (() => { try { return new URL(a.url).hostname.replace(/^www\./, ""); } catch (e) { return ""; } })();
-  bar.innerHTML = `${web ? `<span class="ai" style="display:grid;place-items:center;background:var(--panel2)"><svg width="14" height="14"><use href="#i-link"/></svg></span>` : `<span class="ai">${cover(a.open)}</span>`}
+  const from = web && a.from && META[a.from];
+  bar.innerHTML = `${from ? `<button class="txt backto" data-appnav="return" title="Close this page and go back to the ${esc(from.short)}"><svg><use href="#i-left"/></svg>Back to ${esc(from.short)}</button>` : ""}${web ? `<span class="ai" style="display:grid;place-items:center;background:var(--panel2)"><svg width="14" height="14"><use href="#i-link"/></svg></span>` : `<span class="ai">${cover(a.open)}</span>`}
     <span class="at" title="${esc(a.title)}">${esc(web ? a.title || host : META[a.open].name)}</span>${web && host ? `<span class="ad">${esc(host)}</span>` : ""}
     ${a.loading ? `<span class="ld" aria-label="Loading"></span>` : ""}
     <button data-appnav="reload" title="Reload" aria-label="Reload"><svg><use href="#i-refresh"/></svg></button>
     ${web ? `<button class="txt" data-appnav="browser" title="Open this page in your web browser">Open in browser</button>` : `<button data-appnav="home" title="Back to the app's start" aria-label="App start"><svg><use href="#i-home"/></svg></button>`}
-    <button data-closeapp="${a.open}" title="${web ? "Close this page" : "Close the app (it stays signed in)"}" aria-label="Close"><svg><use href="#i-x"/></svg></button>`;
+    <button data-closeapp="${a.open}" title="${web ? (from ? "Close this page and go back to the " + from.short : "Close this page") : "Close the app (it stays signed in)"}" aria-label="Close"><svg><use href="#i-x"/></svg></button>`;
 }
 function go(view, push = true) {
   if (S.app.open) { lh.closeApp(); S.app.open = null; }
   if (view === S.view) { render(); $("#view").scrollTo({ top: 0 }); return; }
   if (push) { S.hist.push(S.view); S.fwd = []; }
   S.view = view; if (view === "alerts") lh.seenAlerts().then(a => { S.alerts = a; badge(); });
-  render(); $("#view").scrollTo({ top: 0, behavior: "instant" });
+  render(); const vw = $("#view"); vw.scrollTo({ top: 0, behavior: "instant" }); vw.classList.remove("enter"); void vw.offsetWidth; vw.classList.add("enter");
 }
 function railApps() {
   $("#railApps").innerHTML = kinds().map(k => { const st = status(k);
@@ -171,23 +172,67 @@ function heroCopy(kind) {
     btn: "Open", sub: b.me ? `as ${b.me} · opens here` : "opens here" };
 }
 const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+/* The big banner rotates through insights from both apps (no app thumbnails) */
+function slides() {
+  const out = [], p = P(), b = B(), h = S.sum && (S.sum.budgetHouse || b), hm = hideMoney();
+  const upd = S.sum ? `<span class="tag">Updated ${esc(ago(S.sum.at))}</span>` : "";
+  if (b) { const m = b.month, pace = m.forecast, over = m.budget != null && m.mtd > m.budget;
+    const vs = m.lastSame ? Math.round((m.mtd - m.lastSame) / m.lastSame * 100) : null;
+    out.push({ id: "money", src: "budget", label: "This month", tags: `${upd}<span>Budget · ${esc(b.scope)}</span>`,
+      title: m.budget != null ? (hm ? "Spending this month" : `${money0(Math.max(0, m.remaining))} ${over ? "over budget" : "left in " + m.label}`) : (hm ? "Spending this month" : `${money0(m.mtd)} spent in ${m.label}`),
+      desc: esc(hm ? "Amounts are hidden on this PC." : `${money0(m.mtd)} spent so far${m.budget != null ? ` of ${money0(m.budget)}` : ""}, with ${plural(m.left, "day")} to go.${pace ? ` On pace for ${money0(pace)} by the end of the month.` : ""}${vs != null ? ` That's ${Math.abs(vs)}% ${vs > 0 ? "more" : "less"} than this point in ${m.lastLabel}.` : ""}`),
+      stats: [["Day", `${m.day} of ${m.n}`], ...(m.cats[0] ? [["Biggest", `${m.cats[0].name}${hm ? "" : " · " + money0(m.cats[0].amt)}`]] : []), ...(m.income ? [["Income", hm ? "•••" : money0(m.income)]] : [])],
+      btn: ["Open Budget", "budget"] }); }
+  if (h) { const late = h.bills.filter(x => x.days < 0), wk = h.bills.filter(x => x.days >= 0 && x.days <= 7), mb = h.billsMonth, nx = late[0] || wk[0];
+    out.push({ id: "bills", src: "budget", label: "Bills", tags: `${upd}<span>Budget · Household bills</span>`,
+      title: late.length ? `${plural(late.length, "bill")} past due` : wk.length ? `${plural(wk.length, "bill")} due this week` : "No bills due this week",
+      desc: esc(nx ? `Next: ${nx.name} ${nx.days < 0 ? `was due ${-nx.days} day${nx.days === -1 ? "" : "s"} ago` : nx.days === 0 ? "is due today" : nx.days === 1 ? "is due tomorrow" : "on " + DOWL[parseD(nx.due).getDay()]}${hm ? "" : " · " + money(nx.full)}${nx.autopay ? " (autopay)" : ""}.` : "Nothing to pay in the next 7 days.")
+        + (mb ? esc(` ${mb.paid} of ${mb.paid + mb.left} paid in ${h.month.label}${mb.auto ? `, ${mb.auto} by autopay` : ""}.`) : ""),
+      stats: mb ? [["Paid", hm ? String(mb.paid) : money0(mb.paidAmt)], ["Still to pay", hm ? String(mb.left) : money0(mb.leftAmt)]] : [],
+      btn: ["See bills", "cal:bills"] }); }
+  if (p) { const nx = p.countdowns.find(c => c.kind !== "holiday" && c.kind !== "baby"), hol = p.countdowns.find(c => c.kind === "holiday");
+    if (nx || p.babyDays != null) out.push({ id: "next", src: "planner", label: "Next up", tags: `${upd}<span>Planner · Dates</span>`,
+      title: nx ? `${nx.name} ${nx.days === 0 ? "is today" : nx.days === 1 ? "is tomorrow" : "in " + nx.days + " days"}` : `Baby in ${p.babyDays} days`,
+      desc: esc([nx ? `${dLabel(nx.start)}${nx.time ? " at " + tLabel(nx.time) : ""}${nx.place ? " · " + nx.place : ""}.` : "", p.babyDays != null && p.babyDays >= 0 && nx ? `Baby's due date is in ${p.babyDays} days.` : "", hol ? `${hol.name} is ${hol.days === 0 ? "today" : "in " + hol.days + " days"}.` : ""].filter(Boolean).join(" ")),
+      stats: [["This week", plural(upcoming(7).filter(x => x.src === "planner" && x.kind !== "Holiday").length, "date")], ...(p.babyDays != null && p.babyDays >= 0 ? [["Baby", `${p.babyDays} days`]] : [])],
+      btn: ["Coming up", "cal:events"] });
+    const xs = [p.extras.breakfast ? plural(p.extras.breakfast, "breakfast") : "", p.extras.drink ? plural(p.extras.drink, "drink") : ""].filter(Boolean);
+    out.push({ id: "meals", src: "planner", label: "Meals", tags: `${upd}<span>Planner · Meals</span>`,
+      title: p.tonight ? `Tonight: ${p.tonight}` : "Dinner isn't planned tonight",
+      desc: esc(`${p.mealsPlanned} of 7 dinners planned this week${xs.length ? `, plus ${xs.join(" and ")}` : ""}.${p.tomorrow ? ` Tomorrow is ${p.tomorrow}.` : ""}${p.todayX.length ? ` Today also has ${p.todayX.map(x => x.name).join(" and ")}.` : ""}`),
+      stats: [["Shop list", plural(p.shopCount, "item")], ["Planned", `${p.mealsPlanned} / 7`]], btn: ["Open Planner", "planner"] });
+    if (p.baby && p.baby.total) out.push({ id: "lists", src: "planner", label: "Lists", tags: `${upd}<span>Planner · Lists</span>`,
+      title: `${p.baby.name}: ${Math.round(p.baby.done / p.baby.total * 100)}% done`,
+      desc: esc(`${p.baby.done} of ${p.baby.total} done. ${plural(p.itemsLeft, "thing")} left across ${plural(p.lists.filter(l => l.id !== "groceries").length, "list")}.`),
+      stats: p.lists.filter(l => l.id !== "groceries" && l.total).slice(0, 3).map(l => [l.name, `${l.done}/${l.total}`]), btn: ["Open Planner", "planner"] }); }
+  if (b && (b.loans.length || b.cards.length || b.goals.length)) { const pay = b.loans.find(l => l.payoff), g = b.goals[0];
+    out.push({ id: "debt", src: "budget", label: b.loans.length || b.cards.length ? "Debt" : "Goals", tags: `${upd}<span>Budget · ${esc(b.scope)}</span>`,
+      title: b.loans.length || b.cards.length ? (hm ? "Debt and goals" : `${money0(b.loanTotal + b.cardTotal)} total debt`) : `${g.name}`,
+      desc: esc([pay ? `${pay.name} is paid off by ${pay.payoff} at this pace.` : "", g ? `${g.name}: ${hm ? "progress hidden" : money0(g.saved) + " of " + money0(g.target)} (${Math.min(100, Math.round(g.saved / (g.target || 1) * 100))}%).` : ""].filter(Boolean).join(" ") || "Loans, cards and goals from the Budget Log."),
+      stats: [...b.loans.slice(0, 2).map(l => [l.name, hm ? "•••" : money0(l.live)]), ...(b.cards.length ? [["Cards", hm ? "•••" : money0(b.cardTotal)]] : [])].slice(0, 3), btn: ["Open Budget", "budget"] }); }
+  return out;
+}
 function heroHTML() {
-  const ks = kinds(); if (!ks.includes(S.featured)) S.featured = ks[0];
-  const k = S.featured, c = heroCopy(k);
-  return `<section class="hero" id="hero" aria-label="${esc(META[k].name)}">
-    ${heroArt(k)}
-    <div class="hcopy">
-      <div class="tags">${c.tags}</div>
-      <h1>${esc(c.title)}</h1>
-      <p>${c.desc}</p>
-      <div class="meta">${c.meta}</div>
+  const list = slides();
+  if (!list.length) { const k = !S.settings.apps.planner.link ? "planner" : "budget", c = heroCopy(k);
+    return `<section class="hero" id="hero">${heroArt(k)}<div class="hcopy"><div class="tags">${c.tags}</div><h1>${esc(c.title)}</h1><p>${c.desc}</p><div class="meta">${c.meta}</div>
+      <div class="acts"><button class="primary" ${c.setup ? `data-go="settings"` : `data-open="${k}"`}><svg><use href="#i-play"/></svg><span><b>${esc(c.btn)}</b><small>${esc(c.sub)}</small></span></button></div></div></section>`; }
+  S.slide = Math.max(0, Math.min(list.length - 1, list.findIndex(x => x.id === S.slideId)));
+  const x = list[S.slide]; S.slideId = x.id;
+  const [bl, bt] = x.btn, act = bt.startsWith("cal:") ? `data-cal="${bt.slice(4)}"` : `data-open="${bt}"`;
+  return `<section class="hero ${x.src}" id="hero" aria-label="${esc(x.label)}" aria-roledescription="carousel">
+    ${heroArt(x.src)}
+    <div class="hcopy" key="${x.id}">
+      <div class="tags">${x.tags}</div>
+      <h1>${esc(x.title)}</h1>
+      <p>${x.desc}</p>
+      ${x.stats.length ? `<div class="hstats">${x.stats.map(s => `<div><span>${esc(s[0])}</span><b title="${esc(s[1])}">${esc(s[1])}</b></div>`).join("")}</div>` : ""}
       <div class="acts">
-        <button class="primary" ${c.setup ? `data-go="settings"` : `data-open="${k}"`}><svg><use href="#i-play"/></svg><span><b>${esc(c.btn)}</b><small>${esc(c.sub)}</small></span></button>
-        ${c.setup ? "" : `<button class="ghost" data-view-go="calendar"><svg><use href="#i-cal"/></svg>Coming up</button>`}
-        <button class="ghost sq" title="Settings for this app" aria-label="Settings for this app" data-go="settings"><svg><use href="#i-set"/></svg></button>
+        <button class="primary" ${act}><svg><use href="#i-${bt.startsWith("cal:") ? "cal" : "play"}"/></svg><span><b>${esc(bl)}</b><small>${esc(bt.startsWith("cal:") ? "past and upcoming" : "opens here")}</small></span></button>
+        ${bt.startsWith("cal:") ? `<button class="ghost" data-open="${x.src}"><svg><use href="#i-play"/></svg>Open ${esc(META[x.src].short)}</button>` : `<button class="ghost" data-view-go="calendar"><svg><use href="#i-cal"/></svg>Coming up</button>`}
       </div>
     </div>
-    <div class="switcher">${ks.map(x => `<button class="thumb ${x === k ? "on" : ""}" data-feature="${x}" aria-label="Show ${esc(META[x].name)}">${cover(x)}<span class="lbl">${esc(META[x].short)}</span></button>`).join("")}</div>
+    <div class="switcher slides" role="tablist">${list.map((y, i) => `<button class="sdot ${y.src} ${i === S.slide ? "on" : ""}" role="tab" aria-selected="${i === S.slide}" data-slide="${esc(y.id)}"><i></i>${esc(y.label)}</button>`).join("")}</div>
   </section>`;
 }
 function chipsHTML() {
@@ -262,60 +307,117 @@ function glanceHTML() {
       ${m.budget != null ? `<div class="track"><i style="width:${pct}%;${m.mtd > m.budget ? "background:var(--bad)" : ""}"></i><b style="left:${tick}%"></b></div><div class="d"><span><b style="color:var(--fg)">${$m(Math.max(0, m.remaining))}</b> left</span><span>${m.left} days to go</span></div>`
         : `<div class="none">No ${esc(m.label)} budget yet${m.forecast ? ` · on pace for ${hideMoney() ? "•••" : esc(money0(m.forecast))}` : ""}.</div>`}</button>`; }
   let debt = "";
-  if (b) { const rows = [...b.loans.map(l => [l.name, $m(l.live)]), ...(b.cards.length ? [["Credit cards", $m(b.cardTotal)]] : [])];
+  if (b) { const rows = [...b.loans.map(l => [l.name, $m(l.live)]), ...(b.cards.length ? [["Credit cards", $m(b.cardTotal)]] : []), ...b.goals.slice(0, 1).map(g => [g.name + " (goal)", hideMoney() ? "•••" : esc(money0(g.saved) + " / " + money0(g.target))])];
     const pay = b.loans.find(l => l.payoff);
-    debt = `<button class="gl" data-open="budget" style="text-align:left;color:inherit"><div class="k"><span>Debt</span></div>${rows.length ? `<div class="mini">${rows.slice(0, 3).map(r => `<div><span>${esc(r[0])}</span><b>${r[1]}</b></div>`).join("")}${pay ? `<div><span>${esc(pay.name)} paid off by</span><b>${esc(pay.payoff)}</b></div>` : ""}</div>` : `<div class="none">No loans or cards for ${esc(scope)}.</div>`}</button>`; }
-  let week = "";
-  const wk = [];
-  if (p && p.baby) wk.push([p.baby.name, `${p.baby.done} / ${p.baby.total} done`]);
-  if (p) wk.push(["Meals planned", `${p.mealsPlanned} of 7 nights`]);
-  if (p) wk.push(["Shop list", plural(p.shopCount, "item")]);
-  if (b && b.goals.length) { const g = b.goals[0]; wk.push([g.name, hideMoney() ? "•••" : `${money0(g.saved)} / ${money0(g.target)}`]); }
-  if (wk.length) week = `<div class="gl"><div class="k"><span>This week</span></div><div class="mini">${wk.slice(0, 4).map(r => `<div><span>${esc(r[0])}</span><b>${esc(r[1])}</b></div>`).join("")}</div></div>`;
+    debt = `<button class="gl" data-open="budget" style="text-align:left;color:inherit"><div class="k"><span>Debt & goals</span></div>${rows.length ? `<div class="mini">${rows.slice(0, 3).map(r => `<div><span>${esc(r[0])}</span><b>${r[1]}</b></div>`).join("")}${pay ? `<div><span>${esc(pay.name)} paid off by</span><b>${esc(pay.payoff)}</b></div>` : ""}</div>` : `<div class="none">No loans or cards for ${esc(scope)}.</div>`}</button>`; }
+  const hm = hideMoney(), bar = (v, max, cls = "") => `<div class="bar ${cls}"><i style="width:${max ? Math.min(100, v / max * 100) : 0}%"></i></div>`;
+  let billsC = "", cats = "", meals = "", lists = "";
+  if (b) { const mb = b.billsMonth, tot = mb.paid + mb.left;
+    billsC = `<button class="gl" data-cal="bills" style="text-align:left;color:inherit"><div class="k"><span>Bills in ${esc(b.month.label)}</span><span>${mb.paid} of ${tot} paid</span></div>
+      <div class="v">${hm ? `${mb.left}<small>to pay</small>` : `${esc(money0(mb.leftAmt))}<small>still to pay</small>`}</div>${bar(mb.paid, tot, "good")}
+      <div class="d"><span>${hm ? "" : esc(money0(mb.paidAmt)) + " paid"}${mb.auto ? ` · ${mb.auto} autopay` : ""}</span><span>${(S.sum.budgetHouse || b).bills.filter(x => x.days < 0).length ? `<b style="color:var(--bad)">${(S.sum.budgetHouse || b).bills.filter(x => x.days < 0).length} past due</b>` : "none past due"}</span></div></button>`;
+    const cs = b.month.cats, top = cs.length ? cs[0].amt : 0;
+    cats = `<button class="gl" data-open="budget" style="text-align:left;color:inherit"><div class="k"><span>Where it went</span><span>${esc(b.month.label)}</span></div>${cs.length ? `<div class="cats">${cs.slice(0, 4).map(c => `<div><span>${esc(c.name)}</span><b>${hm ? "•••" : esc(money0(c.amt))}</b>${bar(c.amt, top)}</div>`).join("")}</div>`
+      : `<div class="none">No spending yet this month.</div>`}${b.month.lastSame && !hm ? `<div class="d" style="margin-top:8px"><span>${b.month.lastLabel} at this point: ${esc(money0(b.month.lastSame))}</span></div>` : ""}</button>`; }
+  if (p) { const t = p.today;
+    meals = `<button class="gl" data-open="planner" style="text-align:left;color:inherit"><div class="k"><span>Dinners this week</span><span>${p.mealsPlanned} / 7 · shop ${p.shopCount}${p.extras.breakfast + p.extras.drink ? ` · +${p.extras.breakfast + p.extras.drink} bkfst/drinks` : ""}</span></div>
+      <div class="wkmeals">${p.week.map(n => `<div class="${n.date === t ? "on" : n.date < t ? "past" : ""}"><span>${n.date === t ? "Tonight" : DOW[n.day]}</span><b title="${esc(n.label || "Not planned")}">${esc(n.label || "Not planned")}</b></div>`).join("")}</div></button>`;
+    const ls = p.lists.filter(l => l.id !== "groceries" && l.total);
+    lists = `<button class="gl" data-open="planner" style="text-align:left;color:inherit"><div class="k"><span>Lists</span><span>${plural(p.itemsLeft, "thing")} left</span></div>${ls.length ? `<div class="cats">${ls.slice(0, 4).map(l => `<div><span>${esc(l.name)}</span><b>${l.done}/${l.total}</b>${bar(l.done, l.total, "plan")}</div>`).join("")}</div>` : `<div class="none">No lists yet.</div>`}</button>`; }
   return `<section class="sec"><div class="sh"><h2>At a glance</h2><span>${esc(scope)} · ${b ? esc(b.month.label) : ""}</span><div class="r">${seg}</div></div>
-    <div class="glance">${spent}${debt || ""}${week}</div></section>`;
+    <div class="glance g6">${spent}${billsC}${cats}${meals}${lists}${debt || ""}</div></section>`;
 }
 let heroTimer = null;
 function startHero() {
   clearInterval(heroTimer);
   const h = $("#hero"); if (!h) return;
   h.addEventListener("mouseenter", () => S.heroPaused = true); h.addEventListener("mouseleave", () => S.heroPaused = false);
-  heroTimer = setInterval(() => { if (S.heroPaused || S.view !== "home" || document.hidden || !$("#hero")) return; const ks = kinds(); S.featured = ks[(ks.indexOf(S.featured) + 1) % ks.length]; swapHero(); }, 12000);
+  heroTimer = setInterval(() => { if (S.heroPaused || S.view !== "home" || document.hidden || !$("#hero")) return; const l = slides(); if (l.length < 2) return; S.slideId = l[(l.findIndex(x => x.id === S.slideId) + 1) % l.length].id; swapHero(); }, 9000);
 }
-function swapHero() { const h = $("#hero"); if (!h) return; const t = document.createElement("div"); t.innerHTML = heroHTML(); h.replaceWith(t.firstElementChild); startHero(); }
+function swapHero() { const h = $("#hero"); if (!h) return; const t = document.createElement("div"); t.innerHTML = heroHTML(); const n = t.firstElementChild; n.classList.add("swap"); h.replaceWith(n); startHero(); }
 
-/* ---- Coming up (full) ---- */
+/* ---- Coming up (full): Week / Month / Year, past and future ---- */
+const todayStr = () => (P() && P().today) || (B() && B().today) || ymd(new Date());
+function calState() { if (!S.cal) S.cal = { mode: "week", anchor: todayStr(), sel: todayStr() }; return S.cal; }
+function tlAll() { const f = S.calFilter; return ((S.sum && S.sum.timeline) || []).filter(x => f === "all" || (f === "bills" ? x.src === "budget" : x.src === "planner")); }
+const onDay = (list, d) => list.filter(x => x.date === d || (x.end && x.date < d && x.end >= d));
+const weekStart = d => { const x = parseD(d); x.setDate(x.getDate() - x.getDay()); return ymd(x); };
+const monthStart = d => d.slice(0, 8) + "01";
+const addMonths = (d, n) => { const x = parseD(monthStart(d)); x.setMonth(x.getMonth() + n); return ymd(x); };
+function calRange(c) {
+  if (c.mode === "week") { const a = weekStart(c.anchor); return [a, addDays(a, 6)]; }
+  if (c.mode === "month") { const a = monthStart(c.anchor), n = new Date(+a.slice(0, 4), +a.slice(5, 7), 0).getDate(); return [a, a.slice(0, 8) + String(n).padStart(2, "0")]; }
+  const y = c.anchor.slice(0, 4); return [y + "-01-01", y + "-12-31"];
+}
+function rangeLabel(c, [a, b]) {
+  const A = parseD(a), Bd = parseD(b);
+  if (c.mode === "week") return A.getMonth() === Bd.getMonth() ? `${MON[A.getMonth()]} ${A.getDate()} – ${Bd.getDate()}, ${Bd.getFullYear()}` : `${MON[A.getMonth()]} ${A.getDate()} – ${MON[Bd.getMonth()]} ${Bd.getDate()}, ${Bd.getFullYear()}`;
+  if (c.mode === "month") return `${["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][A.getMonth()]} ${A.getFullYear()}`;
+  return String(A.getFullYear());
+}
+const STATUS = { paid: ["Paid", "ok"], autopaid: ["Autopaid", "ok"], late: ["Past due", "bad"], due: ["To pay", ""], unmarked: ["Not marked paid", "dim"] };
 function calendarHTML() {
-  const all = upcoming(45).filter(x => S.calFilter === "all" || (S.calFilter === "bills" ? x.src === "budget" : x.src === "planner"));
-  const seg = `<div class="seg" role="group" aria-label="Show">${[["all", "Everything"], ["events", "Dates"], ["bills", "Bills"]].map(([k, l]) => `<button data-calf="${k}" aria-pressed="${S.calFilter === k}">${l}</button>`).join("")}</div>`;
-  const week = all.filter(x => x.days <= 7), billsDue = all.filter(x => x.src === "budget" && x.days <= 7 && !x.bill.autopay);
-  const stats = `<div class="calstats">
-    <div class="stat"><div class="k">Next 7 days</div><div class="v">${week.length}</div><div class="d">${plural(week.filter(x => x.src === "planner").length, "date")} · ${plural(week.filter(x => x.src === "budget").length, "bill")}</div></div>
-    <div class="stat"><div class="k">Bills to pay this week</div><div class="v">${hideMoney() ? "•••" : esc(money0(billsDue.reduce((a, x) => a + x.bill.amount, 0)))}</div><div class="d">${billsDue.length ? plural(billsDue.length, "bill") + " not on autopay" : "everything is on autopay"}</div></div>
-    <div class="stat"><div class="k">Next 45 days</div><div class="v">${all.length}</div><div class="d">${hideMoney() ? "" : esc(money0(all.filter(x => x.src === "budget").reduce((a, x) => a + x.bill.amount, 0))) + " in bills"}</div></div></div>`;
-  return `<div class="page"><div class="pagehead"><div><h1>Coming up</h1><p class="lead">Next 45 days from both apps. Bills show Household plus ${esc(me() || "your")}'s own.</p></div>${seg}</div>${stats}
-    ${all.length ? boardHTML(all) : `<div class="empty" style="margin-top:18px"><div class="grow">Nothing coming up${S.calFilter === "all" ? "" : " here"}.</div></div>`}</div>`;
+  const c = calState(), t = todayStr(), rg = calRange(c), all = tlAll(), inR = all.filter(x => (x.end || x.date) >= rg[0] && x.date <= rg[1]);
+  const bills = inR.filter(x => x.src === "budget"), dates = inR.filter(x => x.src === "planner" && x.ek !== "holiday");
+  const paid = bills.filter(x => x.status === "paid" || x.status === "autopaid"), toPay = bills.filter(x => x.status === "due" || x.status === "late");
+  const sumAmt = l => l.reduce((a, x) => a + (x.amount || 0), 0), hm = hideMoney();
+  const ctrl = `<div class="calctl">
+    <div class="seg" role="group" aria-label="View">${[["week", "Week"], ["month", "Month"], ["year", "Year"]].map(([k, l]) => `<button data-calmode="${k}" aria-pressed="${c.mode === k}">${l}</button>`).join("")}</div>
+    <div class="calnav"><button class="arrow" data-calstep="-1" aria-label="Earlier"><svg><use href="#i-left"/></svg></button><button class="btn sm" data-calstep="0">Today</button><button class="arrow" data-calstep="1" aria-label="Later"><svg><use href="#i-right"/></svg></button><b>${esc(rangeLabel(c, rg))}</b></div>
+    <div class="seg" role="group" aria-label="Show">${[["all", "Everything"], ["events", "Dates"], ["bills", "Bills"]].map(([k, l]) => `<button data-calf="${k}" aria-pressed="${S.calFilter === k}">${l}</button>`).join("")}</div></div>`;
+  const stats = `<div class="calstats c4">
+    <div class="stat"><div class="k">Dates</div><div class="v">${dates.length}</div><div class="d">${plural(inR.filter(x => x.ek === "holiday").length, "holiday")} too</div></div>
+    <div class="stat"><div class="k">Bills paid</div><div class="v">${hm ? paid.length : esc(money0(sumAmt(paid)))}</div><div class="d">${plural(paid.length, "bill")}${paid.filter(x => x.status === "autopaid").length ? ` · ${paid.filter(x => x.status === "autopaid").length} by autopay` : ""}</div></div>
+    <div class="stat"><div class="k">Still to pay</div><div class="v">${hm ? toPay.length : esc(money0(sumAmt(toPay)))}</div><div class="d">${plural(toPay.length, "bill")}${toPay.filter(x => x.status === "late").length ? ` · <b style="color:var(--bad)">${toPay.filter(x => x.status === "late").length} past due</b>` : ""}</div></div>
+    <div class="stat"><div class="k">${c.mode === "week" ? "This week" : c.mode === "month" ? "This month" : "This year"}</div><div class="v">${inR.length}</div><div class="d">things on the calendar</div></div></div>`;
+  const body = c.mode === "year" ? yearHTML(c, all, t) : c.mode === "month" ? monthHTML(c, all, t, rg) : weekHTML(c, all, t, rg);
+  return `<div class="page cal"><div class="pagehead"><div><h1>Coming up</h1><p class="lead">Both apps, past and future. Bills show Household plus ${esc(me() || "your")}'s own, with what's been paid.</p></div></div>${ctrl}${stats}<div class="calbody">${body}</div></div>`;
 }
-/* A week board: one column per day for the next 7 days, then next week and later. Columns share the width, so it's flush on any screen. */
-function boardHTML(all) {
-  const t = (P() && P().today) || (B() && B().today) || ymd(new Date()), cols = [];
-  const late = all.filter(x => x.late); if (late.length) cols.push({ key: "late", title: "Past due", sub: "", items: late, cls: "late" });
-  for (let i = 0; i < 7; i++) { const d = addDays(t, i), dt = parseD(d);
-    cols.push({ key: d, title: i === 0 ? "Today" : i === 1 ? "Tomorrow" : DOWL[dt.getDay()], sub: `${MON[dt.getMonth()]} ${dt.getDate()}`, items: all.filter(x => !x.late && (x.date === d || (i === 0 && x.now && x.date < d))), cls: i === 0 ? "today" : dt.getDay() === 0 || dt.getDay() === 6 ? "wknd" : "" }); }
-  const nw = all.filter(x => !x.late && x.days >= 7 && x.days <= 13), lt = all.filter(x => !x.late && x.days > 13);
-  if (nw.length) cols.push({ key: "next", title: "Next week", sub: `${dLabel(addDays(t, 7)).replace(/^\w+, /, "")} – ${dLabel(addDays(t, 13)).replace(/^\w+, /, "")}`, items: nw, cls: "later" });
-  if (lt.length) cols.push({ key: "later", title: "Later", sub: "next 45 days", items: lt, cls: "later" });
-  return `<div class="board" id="board" style="--cols:${cols.length}">${cols.map(c => { const bills = c.items.filter(x => x.src === "budget"), tot = bills.reduce((a, x) => a + x.bill.amount, 0);
-    return `<section class="bcol ${c.cls}"><header><div><b>${esc(c.title)}</b><span>${esc(c.sub)}</span></div><em>${c.items.length ? (bills.length && !hideMoney() ? esc(money0(tot)) + " · " : "") + c.items.length : ""}</em></header>
-      <div class="bitems">${c.items.length ? c.items.map(x => boardTileHTML(x, c.key === "next" || c.key === "later" || c.key === "late")).join("") : `<div class="free">Nothing planned</div>`}</div></section>`; }).join("")}</div>`;
+function weekHTML(c, all, t, [a]) {
+  const cols = [];
+  const late = a <= t && t <= addDays(a, 6) ? all.filter(x => x.status === "late" && x.date < a) : [];
+  if (late.length) cols.push({ title: "Past due", sub: "earlier", items: late, cls: "late", showDate: true });
+  for (let i = 0; i < 7; i++) { const d = addDays(a, i), dt = parseD(d);
+    cols.push({ title: d === t ? "Today" : DOWL[dt.getDay()], sub: `${MON[dt.getMonth()]} ${dt.getDate()}`, items: onDay(all, d), cls: (d === t ? "today " : d < t ? "past " : "") + (dt.getDay() === 0 || dt.getDay() === 6 ? "wknd" : "") }); }
+  return `<div class="board wk" style="--cols:${cols.length}">${cols.map(col => { const bl = col.items.filter(x => x.src === "budget"), tot = bl.reduce((s, x) => s + (x.amount || 0), 0);
+    return `<section class="bcol ${col.cls}"><header><div><b>${esc(col.title)}</b><span>${esc(col.sub)}${bl.length && !hideMoney() ? ` · <em>${esc(money0(tot))}</em>` : ""}</span></div></header>
+      <div class="bitems">${col.items.length ? col.items.map(x => tlTile(x, col.showDate)).join("") : `<div class="free">Nothing</div>`}</div></section>`; }).join("")}</div>`;
 }
-function boardTileHTML(x, showDate) {
-  const tags = x.src === "budget" ? [x.bill.split ? "Split" : "", x.bill.share ? "Your half" : "", x.bill.autopay ? "Autopay" : "", x.bill.loan ? "Loan" : ""].filter(Boolean) : [];
-  const when = [showDate ? dLabel(x.date) : "", x.src === "planner" && x.time ? tLabel(x.time) : "", x.src === "planner" && x.end ? "until " + dLabel(x.end).replace(/^\w+, /, "") : "", x.src === "planner" ? x.place : ""].filter(Boolean).join(" · ");
-  return `<button class="btile ${x.src}" data-open="${x.src}" title="Open ${esc(META[x.src].name)}">
-    <div class="bt1"><span class="src"><i style="background:${META[x.src].color}"></i>${esc(x.kind)}</span>${x.src === "budget" ? `<span class="amt">${$m(x.bill.amount, false)}</span>` : ""}</div>
-    <div class="bname">${esc(x.name)}</div>${when ? `<div class="bwhen">${esc(when)}</div>` : ""}
-    ${tags.length ? `<div class="btags">${tags.map(t => `<span class="tag2">${esc(t)}</span>`).join("")}</div>` : ""}</button>`;
+function monthHTML(c, all, t, [a, b]) {
+  const start = weekStart(a), weeks = Math.ceil((days(start, b) + 1) / 7), sel = c.sel && c.sel >= a && c.sel <= b ? c.sel : (t >= a && t <= b ? t : a);
+  let cells = "";
+  for (let i = 0; i < weeks * 7; i++) { const d = addDays(start, i), its = onDay(all, d), out = d < a || d > b, dt = parseD(d);
+    cells += `<button class="mcell ${out ? "out" : ""} ${d === t ? "today" : ""} ${d === sel ? "sel" : ""} ${d < t ? "past" : ""}" data-calday="${d}" aria-label="${esc(dLabel(d))}: ${its.length} things">
+      <span class="dn">${dt.getDate()}</span>${its.slice(0, 3).map(x => `<span class="ml ${x.src} ${x.status || ""}"><i></i>${esc(x.name)}</span>`).join("")}${its.length > 3 ? `<span class="more">+${its.length - 3} more</span>` : ""}</button>`; }
+  const dayItems = onDay(all, sel);
+  return `<div class="month"><div class="mgrid" style="--weeks:${weeks}">${DOW.map(d => `<div class="mh">${d}</div>`).join("")}${cells}</div>
+    <aside class="mday"><header><b>${sel === t ? "Today" : DOWL[parseD(sel).getDay()]}</b><span>${esc(dLabel(sel).replace(/^\w+, /, ""))}, ${sel.slice(0, 4)}</span></header>
+      <div class="bitems">${dayItems.length ? dayItems.map(x => tlTile(x)).join("") : `<div class="free">Nothing on this day</div>`}</div></aside></div>`;
+}
+function yearHTML(c, all, t) {
+  const y = c.anchor.slice(0, 4);
+  return `<div class="year">${MON.map((m, i) => { const a = `${y}-${String(i + 1).padStart(2, "0")}-01`, n = new Date(+y, i + 1, 0).getDate(), b = a.slice(0, 8) + String(n).padStart(2, "0");
+    const its = all.filter(x => (x.end || x.date) >= a && x.date <= b), bl = its.filter(x => x.src === "budget"), ev = its.filter(x => x.src === "planner");
+    const pd = bl.filter(x => x.status === "paid" || x.status === "autopaid"), due = bl.filter(x => x.status === "due" || x.status === "late");
+    const lead = parseD(a).getDay(); let dots = "";
+    for (let k = 0; k < lead; k++) dots += `<i class="e"></i>`;
+    for (let d = 1; d <= n; d++) { const ds = a.slice(0, 8) + String(d).padStart(2, "0"), o = onDay(its, ds), hasP = o.some(x => x.src === "planner" && x.ek !== "holiday"), hasB = o.some(x => x.src === "budget");
+      dots += `<i class="${ds === t ? "t " : ""}${hasP && hasB ? "pb" : hasP ? "p" : hasB ? "b" : o.length ? "h" : ""}" title="${esc(dLabel(ds))}${o.length ? ": " + esc(o.map(x => x.name).join(", ")) : ""}"></i>`; }
+    const cur = t.slice(0, 7) === a.slice(0, 7);
+    return `<button class="ymon ${cur ? "cur" : ""} ${b < t ? "past" : ""}" data-calmonth="${a}"><header><b>${m}</b><span>${plural(ev.filter(x => x.ek !== "holiday").length, "date")} · ${plural(bl.length, "bill")}</span></header>
+      <div class="ydots">${dots}</div>
+      <div class="yfoot">${bl.length ? `<span>${hideMoney() ? plural(pd.length, "paid") : esc(money0(pd.reduce((s, x) => s + x.amount, 0))) + " paid"}</span>${due.length ? `<span class="${due.some(x => x.status === "late") ? "bad" : ""}">${hideMoney() ? due.length + " to pay" : esc(money0(due.reduce((s, x) => s + x.amount, 0))) + " to pay"}</span>` : ""}` : `<span>No bills</span>`}</div>
+      <div class="ytop">${ev.filter(x => x.ek !== "holiday").slice(0, 1).map(x => `<span><i style="background:var(--plan)"></i>${esc(parseD(x.date).getDate() + " · " + x.name)}</span>`).join("")}</div></button>`; }).join("")}</div>`;
+}
+function tlTile(x, showDate) {
+  const st = x.status && STATUS[x.status];
+  const tags = x.src === "budget" ? [x.split ? "Split" : "", x.autopay && x.status !== "autopaid" ? "Autopay" : ""].filter(Boolean) : [];
+  const when = [showDate ? dLabel(x.date) : "", x.time ? tLabel(x.time) : "", x.end ? "until " + dLabel(x.end).replace(/^\w+, /, "") : "", x.place || "",
+    x.paidOn && (x.status === "paid") ? `paid ${dLabel(x.paidOn).replace(/^\w+, /, "")}${x.paidBy ? " by " + x.paidBy : ""}` : ""].filter(Boolean).join(" · ");
+  return `<button class="btile ${x.src} ${x.status || ""}" data-open="${x.src}" title="Open ${esc(META[x.src].name)}">
+    <div class="bt1"><span class="src"><i style="background:${META[x.src].color}"></i>${esc(x.kind)}</span></div>
+    <div class="bname">${esc(x.name)}</div>${x.src === "budget" ? `<div class="bamt">${$m(x.amount, false)}</div>` : ""}${when ? `<div class="bwhen">${esc(when)}</div>` : ""}
+    ${st || tags.length ? `<div class="btags">${st ? `<span class="tag2 st ${st[1]}">${st[1] === "ok" ? "✓ " : ""}${esc(st[0])}</span>` : ""}${tags.map(t => `<span class="tag2">${esc(t)}</span>`).join("")}</div>` : ""}</button>`;
 }
 function calTileHTML(x) {
   const d = x.now && !x.days ? 0 : x.days, today = d === 0, dt = parseD(x.date);
@@ -506,8 +608,16 @@ document.addEventListener("click", async e => {
   if (d.openFolder) return lh.openFolder(d.openFolder);
   if (d.signout) { S.settings = await lh.signOut(); return render(); }
   if (d.feature) { S.featured = d.feature; S.heroPaused = true; return swapHero(); }
-  if (d.cal) { S.calFilter = d.cal; return go("calendar"); }
+  if (d.slide) { S.slideId = d.slide; S.heroPaused = true; return swapHero(); }
+  if (d.cal) { S.calFilter = d.cal; const c = calState(); c.mode = "week"; c.anchor = todayStr(); c.sel = todayStr(); return go("calendar"); }
   if (d.calf) { S.calFilter = d.calf; return render(); }
+  if (d.calmode) { const c = calState(); c.mode = d.calmode; if (d.calmode !== "year" && c.sel) c.anchor = c.sel; return render(); }
+  if (d.calstep !== undefined) { const c = calState(), n = +d.calstep;
+    if (!n) { c.anchor = todayStr(); c.sel = todayStr(); } else c.anchor = c.mode === "week" ? addDays(c.anchor, 7 * n) : c.mode === "month" ? addMonths(c.anchor, n) : (+c.anchor.slice(0, 4) + n) + "-01-01";
+    if (c.mode === "month") c.sel = null;
+    return render(); }
+  if (d.calday) { const c = calState(); c.sel = d.calday; const rg = calRange(c); if (d.calday < rg[0] || d.calday > rg[1]) c.anchor = d.calday; return render(); }
+  if (d.calmonth) { const c = calState(); c.mode = "month"; c.anchor = d.calmonth; c.sel = todayStr().slice(0, 7) === d.calmonth.slice(0, 7) ? todayStr() : d.calmonth; return render(); }
   if (d.glance) { await savePatch({ glanceScope: d.glance }); return; }
   if (d.tog) { const cur = d.tog.split(".").reduce((o, k) => o[k], S.settings); await savePatch(setByPath(d.tog, !cur)); return render(); }
   if (d.test) return testLink(d.test);

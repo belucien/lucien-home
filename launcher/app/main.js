@@ -121,7 +121,24 @@ function shape() {
   out.budget = B && B.ok ? Object.assign(Calc.budget(B.data, settings.glanceScope), { me: B.data.me }) : (B || { ok: false, setup: true });
   if (out.budget.ok) { const me = B.data.me; out.budgetMine = me ? Calc.budget(B.data, me) : null; out.budgetHouse = Calc.budget(B.data, "Household"); }
   out.people = (P && P.ok && P.data.people) || (B && B.ok && B.data.people) || [];
+  // calendar history and future: Jan 1 last year → Dec 31 next year
+  const y = new Date().getFullYear();
+  try { out.timeline = Calc.timeline(P && P.ok ? P.data : null, B && B.ok ? B.data : null, settings.who || (B && B.ok && B.data.me) || "", (y - 1) + "-01-01", (y + 1) + "-12-31"); } catch (e) { console.error(e); out.timeline = []; }
   return out;
+}
+/* The last good feeds are kept on this PC (encrypted with your Windows account) so Home shows up instantly when Lucien Home opens. */
+const CACHE_FILE = () => path.join(DATA(), "cache.dat");
+function saveCache() {
+  try { const keep = {}; for (const k of ["planner", "budget"]) if (state.raw[k] && state.raw[k].ok) keep[k] = state.raw[k];
+    if (!keep.planner && !keep.budget) return;
+    const txt = seal(JSON.stringify({ at: state.at, raw: keep, key: cacheKey() })); if (!txt.startsWith("enc:") && isWin) return;
+    fs.writeFileSync(CACHE_FILE(), txt); } catch (e) {}
+}
+const cacheKey = () => [splitLink(settings.apps.planner.link).base || "", splitLink(settings.apps.budget.link).base || "", settings.who || ""].join("|");
+function loadCache() {
+  try { const c = JSON.parse(unseal(fs.readFileSync(CACHE_FILE(), "utf8")) || "null"); if (!c || c.key !== cacheKey()) return false;
+    for (const k of ["planner", "budget"]) if (c.raw[k]) state.raw[k] = Object.assign(c.raw[k], { stale: true, cached: true });
+    state.at = c.at || 0; return true; } catch (e) { return false; }
 }
 async function refresh() {
   if (state.busy) return shape();
@@ -131,11 +148,12 @@ async function refresh() {
     const [p, b] = await Promise.all([fetchFeed("planner", a.planner.link), fetchFeed("budget", a.budget.link, a.budget.token)]);
     const keep = (old, nw) => nw.ok || !(old && old.ok && nw.offline) ? nw : Object.assign(old, { stale: true });
     state.raw.planner = keep(state.raw.planner, p); state.raw.budget = keep(state.raw.budget, b);
-    state.at = Date.now();
+    for (const k of ["planner", "budget"]) if (state.raw[k] && state.raw[k].ok && !state.raw[k].offline && (k === "planner" ? p : b).ok) { delete state.raw[k].stale; delete state.raw[k].cached; }
+    state.at = Date.now(); saveCache();
   } finally { state.busy = false; }
   const s = shape();
   try { checkAlerts(s); } catch (e) { console.error(e); }
-  send("summaries", s); updateTray(s);
+  send("summaries", s); updateTray(s); warmViews();
   return s;
 }
 let timer = null;
@@ -228,7 +246,7 @@ function layout() {
 function appState() {
   const v = current && views[current], wc = v && v.webContents;
   return { open: current, title: current === "web" ? (wc && wc.getTitle()) || "Web page" : current ? TITLES[current] : "", url: wc ? wc.getURL() : "",
-           canBack: !!(wc && wc.navigationHistory.canGoBack()), canFwd: !!(wc && wc.navigationHistory.canGoForward()), loading: !!(wc && wc.isLoading()), opened: Object.keys(views) };
+           canBack: !!(wc && wc.navigationHistory.canGoBack()) || (current === "web" && !!webFrom && !!views[webFrom]), from: current === "web" ? webFrom : null, canFwd: !!(wc && wc.navigationHistory.canGoForward()), loading: !!(wc && wc.isLoading()), opened: Object.keys(views) };
 }
 const pushState = () => send("app", appState());
 function makeView(kind) {
@@ -249,6 +267,14 @@ function makeView(kind) {
   views[kind] = v; win.contentView.addChildView(v);
   return v;
 }
+/* Load both apps in the background once, so opening them is instant */
+let warmed = false;
+function warmViews() {
+  if (warmed || !win || win.isDestroyed()) return; warmed = true;
+  setTimeout(() => { for (const k of ["planner", "budget"]) if (!views[k] && splitLink(settings.apps[k].link).ok && !(k === "budget" && !settings.apps.budget.token)) {
+    makeView(k).webContents.loadFile(path.join(__dirname, "apps", k, "index.html")); } layout(); }, 1500);
+}
+let webFrom = null;            // the app a web page was opened from: Back / Close return to it
 function openApp(kind) {
   if (!win || win.isDestroyed()) createMain();
   if (kind !== "web") {
@@ -259,12 +285,18 @@ function openApp(kind) {
   current = kind; covered = false; layout(); views[kind].webContents.focus(); pushState();
 }
 function openWeb(url) {
-  let v = views.web; if (!v) v = makeView("web");
+  if (current === "planner" || current === "budget") webFrom = current;
+  else if (current !== "web") webFrom = null;
+  if (views.web) { win.contentView.removeChildView(views.web); views.web.webContents.close(); delete views.web; }   // fresh history for each link
+  const v = makeView("web");
   v.webContents.loadURL(url);
   current = "web"; covered = false; layout(); pushState();
 }
 function closeApp(kind) {
+  const ret = kind === "web" && current === "web" && webFrom && views[webFrom] ? webFrom : null;
   if (kind && views[kind]) { win.contentView.removeChildView(views[kind]); views[kind].webContents.close(); delete views[kind]; }
+  if (kind === "web" || !kind) webFrom = null;
+  if (ret) { current = ret; covered = false; layout(); views[ret].webContents.focus(); pushState(); return; }
   if (!kind || kind === current) current = null;
   layout(); pushState();
 }
@@ -441,6 +473,7 @@ ipcMain.handle("cover", (e, on) => { covered = !!on; layout(); });
 ipcMain.handle("appNav", (e, what) => {
   const v = current && views[current]; if (!v) return;
   const wc = v.webContents;
+  if (what === "return" || (what === "back" && current === "web" && !wc.navigationHistory.canGoBack())) return closeApp("web");
   if (what === "back" && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack();
   if (what === "fwd" && wc.navigationHistory.canGoForward()) wc.navigationHistory.goForward();
   if (what === "reload") wc.reload();
@@ -513,7 +546,7 @@ function takeJustUpdated() { const f = settings.updatedFrom; if (f && f !== app.
 /* ---------------- start ---------------- */
 app.on("second-instance", () => showMain());
 app.whenReady().then(() => {
-  settings = load(); importFamily();
+  settings = load(); importFamily(); loadCache();
   session.fromPartition("persist:apps").setPermissionRequestHandler((wc, perm, cb) => cb(["clipboard-sanitized-write", "notifications", "media", "fullscreen"].includes(perm)));
   createMain(!process.argv.includes("--hidden"));
   buildTray(); applyStartup(); fixShortcut(); schedule();

@@ -317,6 +317,11 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:.9rem;font-weight:600;opacity:0;transition:opacity .2s;pointer-events:none;z-index:60;max-width:calc(100% - 32px);text-align:center}
 .toast.on{opacity:1}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+.extras{display:flex;gap:5px;flex-wrap:wrap;margin-top:6px}
+.xchip{font:inherit;font-size:.72rem;font-weight:600;border:1px dashed var(--line);border-radius:999px;padding:2px 8px;color:var(--muted);background:transparent;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.xchip:hover{border-color:var(--muted)}
+.xchip.on{border-style:solid;color:inherit;background:var(--sunk)}
+.xchip.on.breakfast{border-color:#E9A23B} .xchip.on.drink{border-color:#3BB7E9}
 </style>
 </head>
 <body>
@@ -354,7 +359,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
    ====================================================================== */
 const POLL_MS=10000;
 let people=[], me=null, items=[], lists=[], events=[], due=null, today=null, loaded=false, linkMe=null, busy=0;
-let recipes=[], plan=[], checks=[], settings={}, mealWk="this", shopWk=null, rsearch="", rtag="", planMsg="", shopStore="", shopGroup="aisle";
+let recipes=[], plan=[], checks=[], settings={}, mealWk="this", shopWk=null, rsearch="", rtag="", rtype="", planMsg="", shopStore="", shopGroup="aisle";
 let view="home", listView="all", q="", showDone=false, collapsed=new Set(), confirmList=null, renaming=null, managing=false, showPast=false;
 let S=null;   // open sheet
 
@@ -450,7 +455,13 @@ const staples=()=>Array.isArray(settings.staples)?settings.staples:["salt","blac
 const STORES_DEFAULT=["Aldi","Costco","Ralphs","Sam's Club","Sprouts","Stater Bros","Target","Trader Joe's","Walmart","Whole Foods"];
 const storeList=()=>Array.isArray(settings.stores)&&settings.stores.length?settings.stores:STORES_DEFAULT;
 const storeFor=()=>settings.storeFor&&typeof settings.storeFor==="object"?settings.storeFor:{};
-function nightsOf(week){ const a=Array(7).fill(null); plan.filter(p=>p.week===week).forEach(p=>{ if(p.day>=0&&p.day<7) a[p.day]=p; }); return a; }
+const slotOf=p=>p&&(p.slot==="breakfast"||p.slot==="drink")?p.slot:"dinner";
+const typeOf=r=>r&&(r.type==="breakfast"||r.type==="drink")?r.type:"dinner";
+const TYPE_LABEL={dinner:"Dinner",breakfast:"Breakfast",drink:"Drink"};
+function nightsOf(week){ const a=Array(7).fill(null); plan.filter(p=>p.week===week&&slotOf(p)==="dinner").forEach(p=>{ if(p.day>=0&&p.day<7) a[p.day]=p; }); return a; }
+/* Breakfast or drink planned for a day (optional, not every day) */
+function extraOf(week,day,slot){ return plan.find(p=>p.week===week&&p.day===day&&slotOf(p)===slot&&p.recipe)||null; }
+const sameNight=(p,week,d)=>p.week===week&&p.day===d&&slotOf(p)==="dinner";
 const blankNight=()=>({kind:"meal",recipe:"",servings:0,leftovers:false,locked:false,cook:""});
 const ruleLabel=r=>r==="any"?"Any":r==="takeout"?"Takeout":r==="skip"?"No dinner":r;
 
@@ -459,7 +470,7 @@ const ruleLabel=r=>r==="any"?"Any":r==="takeout"?"Takeout":r==="skip"?"No dinner
 function weightedPick(list){ const w=list.map(r=>r.fav>0?3:1), tot=w.reduce((a,b)=>a+b,0); let x=Math.random()*tot; for(let i=0;i<list.length;i++){ x-=w[i]; if(x<=0) return list[i]; } return list[list.length-1]; }
 function candidates(week,day,used){
   const R=rules(), rule=R.days[day]||"any", last=new Set(nightsOf(addD(week,-7)).filter(n=>n&&n.recipe).map(n=>n.recipe));
-  let c=recipes.filter(r=>r.fav>=0 && R.diet.every(t=>tagsOf(r).has(t)) && !used.has(r.id) && (rule==="any"||rule==="takeout"||rule==="skip"||tagsOf(r).has(rule)));
+  let c=recipes.filter(r=>typeOf(r)==="dinner" && r.fav>=0 && R.diet.every(t=>tagsOf(r).has(t)) && !used.has(r.id) && (rule==="any"||rule==="takeout"||rule==="skip"||tagsOf(r).has(rule)));
   if(R.noRepeat){ const f=c.filter(r=>!last.has(r.id)); if(f.length) c=f; }
   return c;
 }
@@ -524,11 +535,11 @@ function nightServings(n){ const R=rules(); return (n.servings||R.servings||2)*(
 /* Everything to buy for a week: meal ingredients (from today on, for this week) merged with Groceries items. */
 function shopRows(week){
   const rows={}, stap=new Set(staples().map(normKey)), t=todayStr(), hidden=new Set();
-  nightsOf(week).forEach((n,d)=>{ if(!n||n.kind!=="meal"||!n.recipe) return; const date=addD(week,d); if(date<t) return;
-    const r=recipeOf(n.recipe); if(!r) return; const f=nightServings(n)/(r.servings||4);
+  plan.filter(p=>p.week===week&&p.day>=0&&p.day<7).forEach(n=>{ const d=n.day, sl=slotOf(n); if(!n||n.kind!=="meal"||!n.recipe) return; const date=addD(week,d); if(date<t) return;
+    const r=recipeOf(n.recipe); if(!r) return; const f=(sl==="dinner"?nightServings(n):(n.servings||rules().servings||2))/(r.servings||4);
     r.ingredients.split("\n").map(x=>x.trim()).filter(Boolean).forEach(line=>{ const g=parseIng(line); if(!g.key) return; if(stap.has(g.key)){ hidden.add(g.name); return; }
       const row=rows[g.key]||(rows[g.key]={key:g.key,name:g.name,aisle:g.aisle,parts:[],sources:[],manual:null});
-      row.parts.push({q:g.q==null?null:g.q*f,u:g.u}); row.sources.push(DAYS[d].slice(0,3)+" "+r.name); }); });
+      row.parts.push({q:g.q==null?null:g.q*f,u:g.u}); row.sources.push(DAYS[d].slice(0,3)+" "+(sl==="dinner"?"":TYPE_LABEL[sl].toLowerCase()+" ")+r.name); }); });
   const wkChecks=checks.filter(c=>c.week===week), checked=new Set(wkChecks.map(c=>String(c.key).replace(/^x:/,""))), cleared=new Set(wkChecks.filter(c=>String(c.key).startsWith("x:")).map(c=>c.key.slice(2)));
   items.filter(i=>i.cat===GROC).forEach(i=>{ const k=normKey(i.name)||i.id; const row=rows[k];
     if(row && !row.manual) row.manual=i;
@@ -557,7 +568,10 @@ function nightHTML(week,d,n){
   else nm="";
   if(n&&n.cook) sub+=`<span>${esc(n.cook)} cooks</span>`;
   return `<div class="night ${date===t?"today":date<t?"past":""}"><div class="dd"><small>${DAYS[d].slice(0,3)}</small><b>${dt.getDate()}</b></div>
-    <button class="body" data-night="${d}" aria-label="${DAYS[d]}: ${esc(nm||"nothing planned")}"><div class="nm ${nm?"":"none"}">${esc(nm||"Tap to pick a dinner")}</div>${sub?`<div class="sub">${sub}</div>`:""}</button>
+    <div style="min-width:0"><button class="body" data-night="${d}" aria-label="${DAYS[d]}: ${esc(nm||"nothing planned")}"><div class="nm ${nm?"":"none"}">${esc(nm||"Tap to pick a dinner")}</div>${sub?`<div class="sub">${sub}</div>`:""}</button>
+    <div class="extras">${["breakfast","drink"].map(sl=>{ const x=extraOf(week,d,sl), xr=x?recipeOf(x.recipe):null;
+      return xr?`<button class="xchip on ${sl}" data-extra="${sl}" data-d="${d}" title="Change ${TYPE_LABEL[sl].toLowerCase()}">${sl==="breakfast"?"☀":"🥤"} ${esc(xr.name)}</button>`
+        :`<button class="xchip" data-extra="${sl}" data-d="${d}" aria-label="Add ${TYPE_LABEL[sl].toLowerCase()} for ${DAYS[d]}">+ ${TYPE_LABEL[sl]}</button>`; }).join("")}</div></div>
     <div class="acts" role="group" aria-label="${DAYS[d]}: lock, redraw or blank">${(()=>{ const mode=n&&n.kind==="skip"?"blank":n&&n.locked?"lock":"redraw";
       return `<button class="mini" data-nmode="lock" data-d="${d}" aria-pressed="${mode==="lock"}" title="Lock: Plan my week keeps this dinner" aria-label="Lock ${DAYS[d]}">${ICO.lock}</button>`+
         `<button class="mini" data-nmode="redraw" data-d="${d}" aria-pressed="${mode==="redraw"}" title="${mode==="redraw"?"Pick something else now":"Redraw: Plan my week fills this night"}" aria-label="Redraw ${DAYS[d]}">${ICO.dice}</button>`+
@@ -567,17 +581,19 @@ function mealsHTML(){
   const week=mealWk==="next"?nextWeek():thisWeek(), ns=nightsOf(week), planned=ns.filter(n=>n&&n.recipe).length, R=rules();
   const sr=shopRows(week).list.filter(r=>!r.got).length;
   const q=rsearch.trim().toLowerCase();
-  const box=recipes.filter(r=>(!rtag||(rtag==="Favorites"?r.fav>0:tagsOf(r).has(rtag)))&&(!q||(r.name+" "+r.ingredients).toLowerCase().includes(q))).sort((a,b)=>(b.fav-a.fav)||a.name.localeCompare(b.name));
+  const extras=plan.filter(p=>p.week===week&&slotOf(p)!=="dinner"&&p.recipe).length;
+  const box=recipes.filter(r=>(!rtype||typeOf(r)===rtype)&&(!rtag||(rtag==="Favorites"?r.fav>0:tagsOf(r).has(rtag)))&&(!q||(r.name+" "+r.ingredients).toLowerCase().includes(q))).sort((a,b)=>(b.fav-a.fav)||a.name.localeCompare(b.name));
   return `<section class="panel"><div class="weekbar"><div class="seg" role="group" aria-label="Week"><button data-mw="this" aria-pressed="${mealWk!=="next"}">This week · ${weekLabel(thisWeek())}</button><button data-mw="next" aria-pressed="${mealWk==="next"}">Next week</button></div></div>
     <div class="row" style="margin:12px 0"><button class="btn primary" data-planweek="1">${planned?"Redraw":"Plan my week"}</button><button class="btn" data-rules="1">Rules</button></div>
     ${R.diet.length?`<p class="hint" style="margin:-4px 0 8px">Only ${esc(R.diet.join(" + "))} recipes are drawn.</p>`:""}
     ${planMsg?`<div class="notice" style="margin-bottom:8px">${esc(planMsg)}</div>`:""}
     <p class="hint" style="margin:0 0 6px">Each night: <b>lock</b> keeps it, <b>redraw</b> lets Plan my week fill it (tap again to shuffle now), <b>blank</b> leaves it empty.</p>
     <div>${ns.map((n,d)=>nightHTML(week,d,n)).join("")}</div>
-    ${planned?`<div class="row" style="justify-content:space-between;margin-top:12px"><span class="muted">${planned} dinner${planned===1?"":"s"} planned · ${sr} thing${sr===1?"":"s"} to buy</span><button class="link" data-go="shop">Shopping list</button></div>`:""}</section>
+    ${planned?`<div class="row" style="justify-content:space-between;margin-top:12px"><span class="muted">${planned} dinner${planned===1?"":"s"}${extras?` + ${extras} breakfast/drink${extras===1?"":"s"}`:""} planned · ${sr} thing${sr===1?"":"s"} to buy</span><button class="link" data-go="shop">Shopping list</button></div>`:""}</section>
   <section class="panel"><div class="ph"><h2>Recipe box</h2><div class="row"><button class="btn sm" data-scan="1">${ICO.cam} Scan recipe</button><button class="btn primary sm" data-add="recipe">Add recipe</button></div></div>
     <div class="toolbar" style="margin-bottom:10px"><input type="search" id="rsearch" value="${esc(rsearch)}" placeholder="Search recipes or ingredients" aria-label="Search recipes"></div>
-    <div class="chips" style="margin-bottom:12px"><button class="chip" data-rtag="" aria-pressed="${!rtag}">All ${recipes.length}</button><button class="chip" data-rtag="Favorites" aria-pressed="${rtag==="Favorites"}">★ Favorites</button>${TAGS.map(t=>`<button class="chip" data-rtag="${esc(t)}" aria-pressed="${rtag===t}">${esc(t)}</button>`).join("")}</div>
+    <div class="seg" role="group" aria-label="Recipe type" style="margin-bottom:10px">${[["","All"],["dinner","Dinners"],["breakfast","Breakfast"],["drink","Drinks"]].map(([k,l])=>`<button data-rtype="${k}" aria-pressed="${rtype===k}" title="${k?recipes.filter(r=>typeOf(r)===k).length:recipes.length} recipes">${l}</button>`).join("")}</div>
+    <div class="chips" style="margin-bottom:12px"><button class="chip" data-rtag="" aria-pressed="${!rtag}">Any tag</button><button class="chip" data-rtag="Favorites" aria-pressed="${rtag==="Favorites"}">★ Favorites</button>${TAGS.map(t=>`<button class="chip" data-rtag="${esc(t)}" aria-pressed="${rtag===t}">${esc(t)}</button>`).join("")}</div>
     <div class="rgrid" id="rbox">${rboxHTML(box)}</div></section>`;
 }
 let rboxAll=false;
@@ -807,7 +823,9 @@ function doneHTML(){
    SHEETS
    ====================================================================== */
 const KINDS=[["party","Party"],["concert","Concert"],["vacation","Vacation"],["birthday","Birthday"],["appointment","Appointment"],["other","Other"]];
-function openSheet(kind,o={}){ S={kind,mode:o.rec?"edit":"add",rec:o.rec||null,vals:Object.assign({},o.vals||{}),err:"",confirmDel:false}; $("#scrim").hidden=false; renderSheet();
+/* Opening a link must never leave an edit sheet open behind it (phones can deliver a stray tap to the row on return) */
+let linkAt=0;
+function openSheet(kind,o={}){ if(o.rec&&Date.now()-linkAt<2500) return; S={kind,at:Date.now(),mode:o.rec?"edit":"add",rec:o.rec||null,vals:Object.assign({},o.vals||{}),err:"",confirmDel:false}; $("#scrim").hidden=false; renderSheet();
   setTimeout(()=>{ const a=$("#sheet .bigname"); if(a&&S&&S.mode==="add") a.focus(); },40); }
 function closeSheet(){ $("#scrim").hidden=true; S=null; }
 $("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim") closeSheet(); });
@@ -851,11 +869,13 @@ function renderSheet(){
     del=ed;
   }
   if(k==="recipe"){
-    v.tags??=[]; v.servings??=4;
+    v.tags??=[]; v.servings??=4; v.type??="dinner";
     title=ed?"Edit recipe":"Add recipe";
       body=`${v.scanned?`<div class="notice">Read from your photo. Check the name, ingredients and steps, then save.</div>`:!ed?`<button type="button" class="btn" data-scan="1">${ICO.cam} Fill in from a photo</button>`:""}
       <input class="bigname" data-k="name" value="${esc(v.name??"")}" placeholder="Recipe name" maxlength="80" aria-label="Recipe name">
       ${ed&&v.link?`<a class="link" href="${esc(v.link)}" target="_blank" rel="noopener">Open the full recipe ↗</a>`:""}
+      <div class="seg" role="group" aria-label="Kind of recipe">${["dinner","breakfast","drink"].map(t=>`<button type="button" data-rtypeset="${t}" aria-pressed="${v.type===t}">${TYPE_LABEL[t]}</button>`).join("")}</div>
+      <p class="hint" style="margin-top:-6px">${v.type==="dinner"?"Dinners can be drawn by Plan my week.":`${TYPE_LABEL[v.type]}s are never drawn. Add them to any day you like from the week.`}</p>
       <div class="tagpick" role="group" aria-label="Tags">${TAGS.map(t=>`<button type="button" data-tag="${esc(t)}" aria-pressed="${v.tags.includes(t)}">${esc(t)}</button>`).join("")}</div>
       <div class="grid2">${fInp("servings","Serves","number",v.servings,`min="1" max="20" inputmode="numeric"`)}${fInp("minutes","Minutes","number",v.minutes,`min="0" inputmode="numeric" placeholder="30"`)}
       <label class="f full">Ingredients, one per line<textarea data-k="ingredients" rows="7" placeholder="2 cans black beans&#10;1 lb chicken breast&#10;1 cup rice">${esc(v.ingredients||"")}</textarea></label>
@@ -874,6 +894,15 @@ function renderSheet(){
       <div class="grid2">${fInp("servings","Servings","number",v.servings||"",`min="1" max="20" inputmode="numeric" placeholder="${R.servings}"`)}${fSel("cook","Who's cooking",[["","Not set"],...people.map(p=>[p,p])],v.cook||"")}</div>
       <label class="cb"><input type="checkbox" data-k="leftovers" ${v.leftovers?"checked":""}> Make extra for leftovers (doubles the shopping amounts)</label>`:""}
       <label class="cb"><input type="checkbox" data-k="locked" ${v.locked?"checked":""}> Lock this night so “Plan my week” keeps it</label>`;
+  }
+  if(k==="extra"){
+    const {week,day,slot}=v, cur=extraOf(week,day,slot), list=recipes.filter(r=>typeOf(r)===slot&&r.fav>=0).sort((a,b)=>(b.fav-a.fav)||a.name.localeCompare(b.name));
+    title=`${TYPE_LABEL[slot]} · ${DAYS[day]}`;
+    body=list.length?`<div class="pick">${list.map(r=>`<button type="button" data-rpick="${esc(r.id)}" aria-pressed="${!!(cur&&cur.recipe===r.id)}"><span>${r.fav>0?"★ ":""}${esc(r.name)}</span><span class="muted" style="font-size:.8rem">${r.minutes?r.minutes+" min":""}</span></button>`).join("")}</div>
+      <p class="hint">Its ingredients go on the Shop list for that week. ${slot==="breakfast"?"Breakfast is optional: only add it to the days you want.":"Add a drink to any day, like a smoothie."}</p>
+      <button type="button" class="link" data-xadd="1" style="align-self:flex-start">+ New ${TYPE_LABEL[slot].toLowerCase()} recipe</button>
+      ${cur?`<button type="button" class="btn ghost" data-xclear="1" style="align-self:flex-start">Remove ${TYPE_LABEL[slot].toLowerCase()} from ${DAYS[day]}</button>`:""}`
+      :`<div class="empty">No ${TYPE_LABEL[slot].toLowerCase()} recipes yet.</div><button type="button" class="btn primary" data-xadd="1">Add a ${TYPE_LABEL[slot].toLowerCase()} recipe</button>`;
   }
   if(k==="rules"){
     const R=Object.assign(rules(),v.R||{}); v.R=R;
@@ -898,12 +927,12 @@ function renderSheet(){
   const conf=S.confirmDel?`<div class="confirm">${k==="event"?"Delete this event?":k==="recipe"?"Delete this recipe?":"Delete this item?"} <button type="button" class="btn sm" data-nodel="1">Keep</button><button type="button" class="btn sm danger" data-yesdel="1">Delete</button></div>`:"";
   $("#sheet").innerHTML=`<div class="sheet-h"><h2 id="sheetTitle">${esc(title)}</h2><button type="button" class="iconbtn" data-close="1" aria-label="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>${kinds}
     <form id="sForm" style="display:flex;flex-direction:column;gap:12px" novalidate>${body}<div class="err" role="alert">${esc(S.err)}</div>${conf}
-    <div class="sticky-actions">${del?`<button type="button" class="btn ghost" data-del="1" style="margin-right:auto">Delete</button>`:""}${k==="night"&&(v.recipe||v.kind!=="meal")?`<button type="button" class="btn ghost" data-clearnight="1" style="margin-right:auto">Clear night</button>`:""}${k==="storepick"?"":`<button class="btn primary" type="submit" id="sSave">${ed||["night","rules","staples","stores"].includes(k)?"Save":k==="list"?"Create list":k==="recipe"?"Add recipe":"Add"}</button>`}</div></form>`;
+    <div class="sticky-actions">${del?`<button type="button" class="btn ghost" data-del="1" style="margin-right:auto">Delete</button>`:""}${k==="night"&&(v.recipe||v.kind!=="meal")?`<button type="button" class="btn ghost" data-clearnight="1" style="margin-right:auto">Clear night</button>`:""}${k==="storepick"||k==="extra"?"":`<button class="btn primary" type="submit" id="sSave">${ed||["night","rules","staples","stores"].includes(k)?"Save":k==="list"?"Create list":k==="recipe"?"Add recipe":"Add"}</button>`}</div></form>`;
 }
 function ingPreview(t){ const ing=String(t||"").split("\n").map(x=>x.trim()).filter(Boolean).map(parseIng);
   return ing.length?`Shop will list: ${ing.slice(0,6).map(g=>`${esc(g.name)} (${esc(g.aisle)})`).join(", ")}${ing.length>6?"…":""}`:""; }
 function pickHTML(sel,q){ q=String(q||"").toLowerCase(); const R=rules();
-  const list=recipes.filter(r=>r.fav>=0||r.id===sel).filter(r=>!q||r.name.toLowerCase().includes(q)).sort((a,b)=>(b.id===sel)-(a.id===sel)||(b.fav-a.fav)||a.name.localeCompare(b.name));
+  const list=recipes.filter(r=>typeOf(r)==="dinner"||r.id===sel).filter(r=>r.fav>=0||r.id===sel).filter(r=>!q||r.name.toLowerCase().includes(q)).sort((a,b)=>(b.id===sel)-(a.id===sel)||(b.fav-a.fav)||a.name.localeCompare(b.name));
   return list.map(r=>{ const ok=R.diet.every(t=>tagsOf(r).has(t)); return `<button type="button" data-rpick="${esc(r.id)}" aria-pressed="${r.id===sel}"><span>${r.fav>0?"★ ":""}${esc(r.name)}</span><span class="muted" style="font-size:.8rem">${ok?"":"outside your diet rules · "}${r.minutes?r.minutes+" min":""}</span></button>`; }).join("")||`<div class="empty">No recipes match.</div>`; }
 function grab(){ if(!S) return; document.querySelectorAll("#sheet [data-k]").forEach(el=>{ S.vals[el.dataset.k]=el.type==="checkbox"?el.checked:el.value; }); }
 function grabRules(){ grab(); const v=S.vals, R=v.R; for(let i=0;i<7;i++) if(v["day"+i]!=null) R.days[i]=v["day"+i]; if(v.rservings!=null) R.servings=Math.max(1,Math.min(20,parseInt(v.rservings)||2)); if(v.noRepeat!=null) R.noRepeat=!!v.noRepeat; }
@@ -924,6 +953,11 @@ $("#sheet").addEventListener("click",async e=>{
   if(ds.tag){ grab(); const t=ds.tag, a=S.vals.tags||(S.vals.tags=[]); const i=a.indexOf(t); i<0?a.push(t):a.splice(i,1); return rerender(); }
   if(ds.fav!==undefined && S.kind==="recipe"){ const f=+ds.fav; S.vals.fav=f; rerender(); write("setFavorite",S.rec.id,f).then(ok=>ok&&toast(f>0?"Added to favorites":f<0?"Won't be drawn again":"Rating cleared")); return; }
   if(ds.nkind){ grab(); S.vals.kind=ds.nkind; return rerender(); }
+  if(ds.rtypeset){ grab(); S.vals.type=ds.rtypeset; return rerender(); }
+  if(ds.xclear!==undefined && S.kind==="extra"){ const {week,day,slot}=S.vals; plan=plan.filter(p=>!(p.week===week&&p.day===day&&slotOf(p)===slot)); closeSheet(); render(); write("setNight",week,day,{kind:"meal",recipe:"",slot}); toast(`${TYPE_LABEL[slot]} removed`); return; }
+  if(ds.xadd){ const t=S.vals.slot; closeSheet(); openSheet("recipe",{vals:{type:t}}); return; }
+  if(ds.rpick && S.kind==="extra"){ const {week,day,slot}=S.vals, n={kind:"meal",recipe:ds.rpick,servings:0,slot}; plan=plan.filter(p=>!(p.week===week&&p.day===day&&slotOf(p)===slot)).concat([Object.assign({},n,{week,day})]);
+    closeSheet(); const sc=scrollY; render(); scrollTo(0,sc); write("setNight",week,day,n); toast(`${TYPE_LABEL[slot]} added to ${DAYS[day]}`); return; }
   if(ds.rpick){ S.vals.recipe=ds.rpick; document.querySelectorAll("#pickList [data-rpick]").forEach(x=>x.setAttribute("aria-pressed",x.dataset.rpick===ds.rpick)); return; }
   if(ds.diet){ grabRules(); const a=S.vals.R.diet, i=a.indexOf(ds.diet); i<0?a.push(ds.diet):a.splice(i,1); return rerender(); }
   if(ds.clearnight){ b.disabled=true; const {week,day}=S.vals; const ok=await write("setNight",week,day,blankNight()); if(ok){ closeSheet(); toast("Night cleared"); } return; }
@@ -945,7 +979,7 @@ $("#sheet").addEventListener("submit",async e=>{
   if(k==="rules"){ grabRules(); const ok=await write("setSetting","mealRules",S.vals.R); if(ok){ closeSheet(); toast("Rules saved"); } return; }
   if(k==="stores"){ const arr=[...new Set(String(v.text||"").split(/[\n,]/).map(x=>x.trim()).filter(Boolean))].slice(0,40); if(!arr.length){ S.err="Add at least one store."; return rerender(); } const ok=await write("setSetting","stores",arr); if(ok){ closeSheet(); toast("Stores saved"); } return; }
   if(k==="staples"){ const arr=String(v.text||"").split(/[\n,]/).map(x=>x.trim()).filter(Boolean).slice(0,80); const ok=await write("setSetting","staples",arr); if(ok){ closeSheet(); toast("Staples saved"); } return; }
-  if(k==="recipe"){ const r={name:String(v.name||"").trim(),tags:v.tags||[],servings:parseInt(v.servings)||4,minutes:parseInt(v.minutes)||0,ingredients:v.ingredients||"",steps:v.steps||"",link:v.link||"",by:me};
+  if(k==="recipe"){ const r={name:String(v.name||"").trim(),type:v.type||"dinner",tags:v.tags||[],servings:parseInt(v.servings)||4,minutes:parseInt(v.minutes)||0,ingredients:v.ingredients||"",steps:v.steps||"",link:v.link||"",by:me};
     if(!r.name){ S.err="Name the recipe."; return rerender(); } if(!String(r.ingredients).trim()){ S.err="Add at least one ingredient."; return rerender(); }
     const btn=$("#sSave"); btn.disabled=true; btn.textContent="Saving…";
     const ok=S.mode==="edit"?await write("updateRecipe",S.rec.id,r):await write("addRecipe",r);
@@ -1003,6 +1037,7 @@ async function write(fn,...args){
    EVENTS
    ====================================================================== */
 document.addEventListener("click",async e=>{
+  const ol=e.target.closest("a.olink"); if(ol){ e.stopPropagation(); linkAt=Date.now(); if(S&&S.mode==="edit") closeSheet(); return; }
   if(e.target.closest("#sheet")) return;
   const b=e.target.closest("button"); if(!b) return; const ds=b.dataset;
   if(ds.go){ view=ds.go; store.set("view",view); render(); scrollTo(0,0); return; }
@@ -1026,14 +1061,16 @@ document.addEventListener("click",async e=>{
   if(ds.storepick){ openSheet("storepick",{vals:{key:ds.storepick}}); return; }
   if(ds.stores){ openSheet("stores",{vals:{}}); return; }
   if(ds.rtag!==undefined && b.hasAttribute("data-rtag")){ rtag=ds.rtag; render(); return; }
-  if(ds.recipe){ const r=recipeOf(ds.recipe); if(r) openSheet("recipe",{rec:r,vals:{name:r.name,tags:[...(r.tags||[])],servings:r.servings,minutes:r.minutes||"",ingredients:r.ingredients,steps:r.steps,link:r.link,fav:r.fav}}); return; }
+  if(ds.rtype!==undefined && b.hasAttribute("data-rtype")){ rtype=ds.rtype; render(); return; }
+  if(ds.extra){ const week=mealWk==="next"?nextWeek():thisWeek(); openSheet("extra",{vals:{week,day:+ds.d,slot:ds.extra}}); return; }
+  if(ds.recipe){ const r=recipeOf(ds.recipe); if(r) openSheet("recipe",{rec:r,vals:{name:r.name,type:typeOf(r),tags:[...(r.tags||[])],servings:r.servings,minutes:r.minutes||"",ingredients:r.ingredients,steps:r.steps,link:r.link,fav:r.fav}}); return; }
   if(ds.rules){ openSheet("rules",{vals:{}}); return; }
   if(ds.scan){ $("#scanInput").click(); return; }
   if(ds.rboxall){ rboxAll=true; render(); return; }
   if(ds.staples){ openSheet("staples",{vals:{}}); return; }
   if(ds.planweek){ const week=mealWk==="next"?nextWeek():thisWeek(); if(!recipes.length){ toast("Add a recipe first"); return; }
     const {out,missing}=drawWeek(week); planMsg=missing.length?`No recipe fits the rules for ${missing.join(", ")}. Add recipes or loosen the rules.`:"";
-    plan=plan.filter(p=>p.week!==week).concat(out.map((n,i)=>Object.assign({},n,{week,day:i}))); render();
+    plan=plan.filter(p=>!(p.week===week&&slotOf(p)==="dinner")).concat(out.map((n,i)=>Object.assign({},n,{week,day:i}))); render();
     write("setWeekPlan",week,out).then(ok=>ok&&toast("Week planned")); return; }
   if(ds.nmode){ const week=mealWk==="next"?nextWeek():thisWeek(), d=+ds.d, cur=nightsOf(week)[d]||blankNight(), mode=cur.kind==="skip"?"blank":cur.locked?"lock":"redraw";
     let n;
@@ -1042,9 +1079,9 @@ document.addEventListener("click",async e=>{
     else if(ds.nmode==="blank"){ n=mode==="blank"?blankNight():Object.assign(blankNight(),{kind:"skip",cook:cur.cook}); toast(mode==="blank"?"Will redraw":"Left blank"); }
     else { // redraw: unlock / un-blank, and pick something right away
       const base=Object.assign({},cur,{locked:false}); if(base.kind==="skip") Object.assign(base,{kind:"meal",recipe:""});
-      plan=plan.filter(p=>!(p.week===week&&p.day===d)).concat([Object.assign({},base,{week,day:d})]);
+      plan=plan.filter(p=>!sameNight(p,week,d)).concat([Object.assign({},base,{week,day:d})]);
       n=rerollNight(week,d); if(!n){ n=base; toast("No other recipe fits that night's rules"); } }
-    plan=plan.filter(p=>!(p.week===week&&p.day===d)).concat([Object.assign({},n,{week,day:d})]); const sc=scrollY; render(); scrollTo(0,sc);
+    plan=plan.filter(p=>!sameNight(p,week,d)).concat([Object.assign({},n,{week,day:d})]); const sc=scrollY; render(); scrollTo(0,sc);
     write("setNight",week,d,n); return; }
   if(ds.night!==undefined && b.hasAttribute("data-night")){ const week=mealWk==="next"?nextWeek():thisWeek(), d=+ds.night, n=nightsOf(week)[d]||blankNight(); openSheet("night",{vals:Object.assign({},n,{week,day:d})}); return; }
   if(ds.clearshop){ const week=shopWeek();   // clear on screen right away, save in the background
@@ -1103,7 +1140,7 @@ try{ google.script.url.getLocation(l=>{ const m=l&&l.parameter&&l.parameter.me; 
 render();
 refresh();
 setInterval(()=>{ if(!document.hidden) refresh(); },POLL_MS);
-document.addEventListener("visibilitychange",()=>{ if(!document.hidden) refresh(); });
+document.addEventListener("visibilitychange",()=>{ if(!document.hidden){ if(S&&linkAt&&S.at>=linkAt-500&&Date.now()-linkAt<600000&&S.mode==="edit") closeSheet(); linkAt=linkAt?Date.now():0; refresh(); } });
 </script>
 </body>
 </html>
