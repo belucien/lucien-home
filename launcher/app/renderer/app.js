@@ -252,8 +252,7 @@ function homeHTML() {
   const needSetup = !S.settings.apps.planner.link || !S.settings.apps.budget.link;
   let h = heroHTML() + chipsHTML();
   if (needSetup) h += `<div class="welcome"><div class="grow"><b>Welcome to Lucien Home</b><p>${!S.settings.apps.planner.link && !S.settings.apps.budget.link ? "Paste your two app links once (the ones that end in /exec) and everything here fills in by itself." : `Connect the ${!S.settings.apps.planner.link ? "Planner" : "Budget Log"} too, to see its dates and bills here.`}</p></div><button class="btn pri" data-go="settings"><svg><use href="#i-link"/></svg>Connect apps</button></div>`;
-  h += `<section class="sec"><div class="sh"><h2>Your apps</h2><span>${me() ? `Open signed in as ${esc(me())}. No PIN, no "who are you?"` : "They open right here in Lucien Home."}</span></div>
-    <div class="apps2">${kinds().map(appCardHTML).join("")}</div></section>`;
+  h += chartsHTML();
   const up = upcoming(7);
   h += `<section class="sec"><div class="sh"><h2>Coming up</h2><span>From both apps, next 7 days</span><div class="r">${up.length > 3 ? `<button class="arrow" data-ev="-1" aria-label="Earlier"><svg><use href="#i-left"/></svg></button><button class="arrow" data-ev="1" aria-label="Later"><svg><use href="#i-right"/></svg></button>` : ""}<button data-view-go="calendar">See all <svg><use href="#i-right"/></svg></button></div></div>
     ${up.length ? `<div class="ev" id="evrow">${up.slice(0, 12).map(cardHTML).join("")}</div>` : `<div class="empty"><div class="grow">${P() || B() ? "Nothing in the next 7 days. Enjoy the quiet week." : "Connect your apps to see appointments, events and bills here."}</div></div>`}</section>`;
@@ -327,6 +326,87 @@ function glanceHTML() {
   return `<section class="sec"><div class="sh"><h2>At a glance</h2><span>${esc(scope)} · ${b ? esc(b.month.label) : ""}</span><div class="r">${seg}</div></div>
     <div class="glance g6">${spent}${billsC}${cats}${meals}${lists}${debt || ""}</div></section>`;
 }
+/* ---- Trends: three small charts (inline SVG, hover for values) ---- */
+const niceMax = v => { if (v <= 0) return 100; const e = Math.pow(10, Math.floor(Math.log10(v))), f = v / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e; };
+const kShort = v => v >= 1000 ? "$" + (Math.round(v / 100) / 10).toString().replace(/\.0$/, "") + "k" : "$" + Math.round(v);
+function gridY(W, H, L, T, B, max, steps = 4) {
+  let g = ""; for (let i = 0; i <= steps; i++) { const v = max / steps * i, y = H - B - (H - T - B) * (i / steps);
+    g += `<line x1="${L}" x2="${W - 8}" y1="${y}" y2="${y}" class="cg${i ? "" : " base"}"/><text x="${L - 8}" y="${y + 4}" class="ct" text-anchor="end">${kShort(v)}</text>`; } return g;
+}
+function paceChart(m) {
+  const W = 640, H = 230, L = 48, T = 14, B = 26, n = m.n, iw = W - L - 8, ih = H - T - B;
+  const max = niceMax(Math.max(m.budget || 0, m.lastDaily[m.lastDaily.length - 1] || 0, m.daily[m.daily.length - 1] || 0) * 1.08);
+  const X = d => L + iw * (d - 1) / Math.max(1, n - 1), Y = v => T + ih - ih * v / max;
+  const path = arr => arr.map((v, i) => `${i ? "L" : "M"}${X(i + 1).toFixed(1)} ${Y(v).toFixed(1)}`).join("");
+  const last = m.lastDaily.slice(0, n), cur = m.daily, end = cur.length ? cur[cur.length - 1] : 0;
+  const area = cur.length ? `${path(cur)}L${X(cur.length).toFixed(1)} ${Y(0)}L${X(1)} ${Y(0)}Z` : "";
+  const ticks = [1, 8, 15, 22, n].map(d => `<text x="${X(d)}" y="${H - 8}" class="ct" text-anchor="middle">${m.label} ${d}</text>`).join("");
+  const hit = Array.from({ length: n }, (_, i) => { const d = i + 1, w = iw / Math.max(1, n - 1);
+    const tip = `${m.label} ${d}|${d <= cur.length ? `This month: ${money0(cur[i])}` : "This month: —"}|${m.lastLabel} ${Math.min(d, m.lastDaily.length)}: ${money0(m.lastDaily[Math.min(d, m.lastDaily.length) - 1] || 0)}${m.budget != null ? `|Budget: ${money0(m.budget)}` : ""}`;
+    return `<rect x="${X(d) - w / 2}" y="${T}" width="${w}" height="${ih}" class="hit" data-tip="${esc(tip)}" data-hx="${X(d)}"/>`; }).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Spending this month compared with last month">
+    <defs><linearGradient id="pa" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--bud)" stop-opacity=".28"/><stop offset="1" stop-color="var(--bud)" stop-opacity="0"/></linearGradient></defs>
+    ${gridY(W, H, L, T, B, max)}${ticks}
+    ${m.budget != null ? `<line x1="${L}" x2="${W - 8}" y1="${Y(m.budget)}" y2="${Y(m.budget)}" class="cbud"/><text x="${W - 10}" y="${Y(m.budget) - 6}" class="ct lbl" text-anchor="end">Budget ${money0(m.budget)}</text>` : ""}
+    <path d="${path(last)}" class="cl last"/>
+    ${area ? `<path d="${area}" fill="url(#pa)"/><path d="${path(cur)}" class="cl cur"/>` : ""}
+    ${cur.length ? `<circle cx="${X(cur.length)}" cy="${Y(end)}" r="5" class="cdot"/><text x="${X(cur.length) + (cur.length > n * .8 ? -10 : 10)}" y="${Y(end) - 10}" class="ct val" text-anchor="${cur.length > n * .8 ? "end" : "start"}">${money0(end)}</text>` : ""}
+    <line class="cross" x1="0" x2="0" y1="${T}" y2="${T + ih}" style="display:none"/>${hit}</svg>`;
+}
+function monthsChart(hist) {
+  const W = 360, H = 230, L = 44, T = 14, B = 26, iw = W - L - 8, ih = H - T - B, n = hist.length;
+  const max = niceMax(Math.max(...hist.map(h => Math.max(h.spent, h.budget || 0))) * 1.04), bw = Math.min(30, iw / n * .52);
+  const Y = v => T + ih - ih * v / max, cx = i => L + iw * (i + .5) / n;
+  return `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Spending in each of the last 6 months">${gridY(W, H, L, T, B, max)}
+    ${hist.map((h, i) => { const y = Y(h.spent), x = cx(i) - bw / 2, ht = Math.max(0, T + ih - y), r = Math.min(4, ht);
+      const tip = `${h.label} ${h.k.slice(0, 4)}|Spent: ${money0(h.spent)}${h.budget != null ? `|Budget: ${money0(h.budget)}|${h.spent > h.budget ? "Over by " + money0(h.spent - h.budget) : "Under by " + money0(h.budget - h.spent)}` : ""}${h.current ? "|(so far)" : ""}`;
+      return `<g class="bar-g" data-tip="${esc(tip)}"><rect x="${cx(i) - iw / n / 2}" y="${T}" width="${iw / n}" height="${ih}" class="hit"/>
+        <path d="M${x} ${T + ih}V${y + r}Q${x} ${y} ${x + r} ${y}H${x + bw - r}Q${x + bw} ${y} ${x + bw} ${y + r}V${T + ih}Z" class="cbar${h.current ? " now" : ""}${h.budget != null && h.spent > h.budget ? " over" : ""}"/>
+        ${h.budget != null ? `<line x1="${x - 4}" x2="${x + bw + 4}" y1="${Y(h.budget)}" y2="${Y(h.budget)}" class="ctick"/>` : ""}
+        <text x="${cx(i)}" y="${H - 8}" class="ct${h.current ? " val" : ""}" text-anchor="middle">${h.label}</text></g>`; }).join("")}</svg>`;
+}
+function billsChart() {
+  const t = todayStr(), W = 360, H = 230, L = 44, T = 14, B = 26, iw = W - L - 8, ih = H - T - B, N = 30;
+  const items = ((S.sum && S.sum.timeline) || []).filter(x => x.src === "budget" && (x.status === "due" || x.status === "late") && x.date <= addDays(t, N - 1));
+  const per = Array.from({ length: N }, (_, i) => { const d = addDays(t, i); return { d, list: items.filter(x => i === 0 ? x.date <= d : x.date === d) }; });
+  per.forEach(p => p.amt = p.list.reduce((a, x) => a + (x.amount || 0), 0));
+  const max = niceMax(Math.max(...per.map(p => p.amt), 1) * 1.04), Y = v => T + ih - ih * v / max, slot = iw / N, bw = Math.max(3, slot - 3);
+  const total = per.reduce((a, p) => a + p.amt, 0);
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="chart" role="img" aria-label="Bills due in the next 30 days">${gridY(W, H, L, T, B, max)}
+    ${per.map((p, i) => { const x = L + slot * i + (slot - bw) / 2, y = Y(p.amt), ht = T + ih - y, r = Math.min(3, ht), dt = parseD(p.d);
+      const tip = `${i === 0 ? "Today (and past due)" : dLabel(p.d)}|${p.list.length ? p.list.map(x => `${x.name}: ${money0(x.amount)}${x.status === "late" ? " (past due)" : x.autopay ? " (autopay)" : ""}`).join("|") : "No bills"}`;
+      return `<g class="bar-g" data-tip="${esc(tip)}"><rect x="${L + slot * i}" y="${T}" width="${slot}" height="${ih}" class="hit"/>${p.amt ? `<path d="M${x} ${T + ih}V${y + r}Q${x} ${y} ${x + r} ${y}H${x + bw - r}Q${x + bw} ${y} ${x + bw} ${y + r}V${T + ih}Z" class="cbar${p.list.some(x => x.status === "late") ? " over" : ""}${p.list.every(x => x.autopay) ? " auto" : ""}"/>` : ""}
+        ${i % 7 === 0 ? `<text x="${L + slot * i + slot / 2}" y="${H - 8}" class="ct" text-anchor="start">${i === 0 ? "Today" : MON[dt.getMonth()] + " " + dt.getDate()}</text>` : ""}</g>`; }).join("")}</svg>`;
+  return { svg, total, count: items.length };
+}
+function chartsHTML() {
+  const b = B(); if (!b || !b.month.history) return "";
+  const m = b.month, bc = billsChart(), hm = hideMoney(), vs = m.lastSame ? Math.round((m.mtd - m.lastSame) / m.lastSame * 100) : null;
+  const wrap = svg => hm ? `<div class="chartwrap hidden">${svg}<span>Amounts are hidden on this PC</span></div>` : `<div class="chartwrap">${svg}</div>`;
+  return `<section class="sec"><div class="sh"><h2>Trends</h2><span>${esc(b.scope)} · hover for amounts</span></div>
+    <div class="charts">
+      <div class="gl chartcard wide"><div class="k"><span>Spending pace · ${esc(m.label)}</span><span class="lg"><i class="cur"></i>This month <i class="last"></i>${esc(m.lastLabel)}${m.budget != null ? ` <i class="bud"></i>Budget` : ""}</span></div>
+        <div class="cv">${hm ? "•••" : esc(money0(m.mtd))}<small>${vs != null && !hm ? `${vs > 0 ? "▲" : "▼"} ${Math.abs(vs)}% vs ${esc(m.lastLabel)} at this point` : `day ${m.day} of ${m.n}`}</small></div>${wrap(paceChart(m))}</div>
+      <div class="gl chartcard"><div class="k"><span>Last 6 months</span><span class="lg"><i class="cur"></i>Spent${m.history.some(h => h.budget != null) ? ` <i class="tick"></i>Budget` : ""}</span></div>
+        <div class="cv">${hm ? "•••" : esc(money0(m.history.slice(0, 5).reduce((a, h) => a + h.spent, 0) / Math.max(1, m.history.slice(0, 5).filter(h => h.spent).length)))}<small>average month</small></div>${wrap(monthsChart(m.history))}</div>
+      <div class="gl chartcard"><div class="k"><span>Bills, next 30 days</span><span>Household + ${esc(me() || "yours")}</span></div>
+        <div class="cv">${hm ? "•••" : esc(money0(bc.total))}<small>${plural(bc.count, "bill")} to pay</small></div>${wrap(bc.svg)}</div>
+    </div></section>`;
+}
+/* chart tooltip: one for the whole page */
+document.addEventListener("pointermove", e => {
+  const tip = $("#ctip"), hitEl = e.target.closest && e.target.closest("[data-tip]");
+  document.querySelectorAll(".chart .cross").forEach(c => c.style.display = "none");
+  document.querySelectorAll(".bar-g.on").forEach(g => g.classList.remove("on"));
+  if (!hitEl || hideMoney()) { tip.hidden = true; return; }
+  const svg = hitEl.closest("svg");
+  if (hitEl.dataset.hx && svg) { const c = svg.querySelector(".cross"); c.setAttribute("x1", hitEl.dataset.hx); c.setAttribute("x2", hitEl.dataset.hx); c.style.display = ""; }
+  if (hitEl.classList.contains("bar-g")) hitEl.classList.add("on");
+  const [head, ...rows] = hitEl.dataset.tip.split("|");
+  tip.innerHTML = `<b>${esc(head)}</b>${rows.map(r => `<span>${esc(r)}</span>`).join("")}`; tip.hidden = false;
+  const r = tip.getBoundingClientRect(), x = Math.min(innerWidth - r.width - 12, e.clientX + 14), y = Math.min(innerHeight - r.height - 12, e.clientY + 14);
+  tip.style.left = x + "px"; tip.style.top = y + "px";
+}, { passive: true });
 let heroTimer = null;
 function startHero() {
   clearInterval(heroTimer);

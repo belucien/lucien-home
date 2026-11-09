@@ -110,7 +110,15 @@
     const lastAll = sum(txns.filter(x => ps.includes(x.person) && isSpend(x) && mkey(x.date) === lk).map(x => x.amount));
     const cm = {}; txns.filter(x => ps.includes(x.person) && isSpend(x) && mkey(x.date) === k).forEach(x => { const c = x.sub || x.category || "Other"; cm[c] = (cm[c] || 0) + x.amount; });
     const cats = Object.entries(cm).map(([name, amt]) => ({ name, amt })).sort((a, b) => b.amt - a.amt).slice(0, 5);
-    const month = { k, label: MON[+k.slice(5, 7) - 1], day, n, left: n - day, mtd, budget: any ? total : null, remaining: any ? total - mtd : null, forecast: day >= 5 ? mtd / day * n : null, income: inc, lastSame, lastAll, lastLabel: MON[+lk.slice(5, 7) - 1], cats };
+    // for the charts: running total by day (this month and last), and the last 6 months
+    const cum = (key, len) => { const d = Array(len).fill(0); txns.filter(x => ps.includes(x.person) && isSpend(x) && mkey(x.date) === key).forEach(x => { const i = Math.min(len, Math.max(1, +String(x.date).slice(8, 10))) - 1; d[i] += x.amount; });
+      for (let i = 1; i < len; i++) d[i] += d[i - 1]; return d; };
+    const daily = cum(k, n).slice(0, day), lastDaily = cum(lk, ldim);
+    const history = [];
+    for (let i = 5; i >= 0; i--) { const hk = mkey(addMonthsKeepDay(k + "-01", -i, 1)); let bt = 0, anyB = false;
+      ps.forEach(p => { const bb = (D.budgets || []).find(b => b.person === p && mkey(b.date) === hk); if (bb) { bt += bb.budget; anyB = true; } });
+      history.push({ k: hk, label: MON[+hk.slice(5, 7) - 1], spent: sum(txns.filter(x => ps.includes(x.person) && isSpend(x) && mkey(x.date) === hk).map(x => x.amount)), budget: anyB ? bt : null, current: i === 0 }); }
+    const month = { k, label: MON[+k.slice(5, 7) - 1], day, n, left: n - day, mtd, budget: any ? total : null, remaining: any ? total - mtd : null, forecast: day >= 5 ? mtd / day * n : null, income: inc, lastSame, lastAll, lastLabel: MON[+lk.slice(5, 7) - 1], cats, daily, lastDaily, history };
 
     // bills (unpaid; past-due ones first), exactly what the app's Dates tab shows for this scope
     const from = addDays(t, -60), to = addDays(t, 45), cnt = Math.max(1, people.length), bills = [];
