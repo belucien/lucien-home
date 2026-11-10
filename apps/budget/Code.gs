@@ -50,7 +50,7 @@ const LOCK_MINUTES = 15;      // …per this many minutes, for everyone
 
 /* ================= web app ================= */
 
-const APP_VERSION = '2026.11.09';   // shown at the bottom of the app. Code.gs and Index.html should match.
+const APP_VERSION = '2026.11.10';   // shown at the bottom of the app. Code.gs and Index.html should match.
 
 function appName_() {
   const pr = PropertiesService.getScriptProperties();

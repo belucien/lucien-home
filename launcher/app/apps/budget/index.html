@@ -356,6 +356,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 .seg.wrap{flex-wrap:wrap;overflow:visible;white-space:normal}
 .seg.wrap button{flex:1 1 auto}
+.ccard .nm .nmb{display:flex;gap:6px;flex:none}
 </style>
 </head>
 <body>
@@ -404,7 +405,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 <div id="tip" hidden></div>
 
 <script>
-const CLIENT_VERSION="2026.11.09";
+const CLIENT_VERSION="2026.11.10";
 function showAppName(full){ document.querySelectorAll(".appname").forEach(e=>e.textContent=full); document.title=full; }
 if(/__APP_NAME__/.test(document.querySelector(".appname").textContent)) showAppName("Family Budget Log "+new Date().getFullYear());
 document.getElementById("lockVer").textContent="Version "+CLIENT_VERSION;
@@ -1082,7 +1083,7 @@ function loansHTML(){
       <div class="grid"><div>Paid off<b>${i.paidPct.toFixed(0)}% of ${money0(l.original)}</b></div><div>Payment<b>${money0(l.payment)}/mo</b></div>
         <div>Next due<b>${nd?`${MON[nd.getMonth()]} ${nd.getDate()}`:"—"}</b></div><div>APR<b>${(+l.apr).toFixed(2)}%</b></div>
         <div>Paid off by<b>${i.am.never?"Never at this payment":i.am.n===0?"Paid off":mlabel(addMonths(curK(),i.am.n))}</b></div><div>Interest left<b>${i.am.never?"—":money0(i.am.interest)}</b></div></div>
-      <div class="acts"><button class="hbtn" data-add="loanpay" data-loan="${esc(l.id)}">Log payment</button></div></article>`; }).join("");
+      <div class="acts"><button class="hbtn" data-add="loanpay" data-loan="${esc(l.id)}">Log payment</button><button class="hbtn" data-setbal="loan:${esc(l.id)}">Update balance</button></div></article>`; }).join("");
   const sl=ls.find(l=>l.id===ui.lsim.id);
   return `<section class="panel"><div class="ph"><h3>Your loans</h3><span class="muted">${money0(tot)} owed · ${money0(monthly)}/month</span></div><div class="cardgrid">${cards}</div><div style="margin-top:14px">${add}</div></section>
   <section class="panel"><div class="ph"><h3>Pay it off faster</h3><span class="muted">extra each month</span></div><div class="sim">
@@ -1112,7 +1113,7 @@ function cardsHTML(){
       Viz.xy(pc,keys.map(mlabel),[{name:"Charges",color:cssv("--s2"),data:keys.map(k=>sum(ctx.filter(t=>mkey(t.date)===k&&t.amount>=0).map(t=>t.amount)))},{name:"Payments",color:cssv("--s3"),data:keys.map(k=>sum(ctx.filter(t=>mkey(t.date)===k&&t.amount<0).map(t=>-t.amount)))}],{kind:"bars",stacked:true}); }
     simUpdate(); });
   return `<section class="panel"><div class="ph"><h3>Your cards</h3><span class="muted">${money0(tot)} of ${money0(lim)} · ${lim?(tot/lim*100).toFixed(1):0}% overall</span></div>
-    <div class="cardgrid">${cs.map(c=>{const st=c.util>50?"bad":c.util>30?"warn":"";return `<div class="ccard"><div class="nm"><span>${esc(c.name)}</span><button class="edit" data-edit-card="${c.row}" aria-label="Edit ${esc(c.name)}">Edit</button></div>${scope==="Household"?`<div class="who">${esc(c.person)}</div>`:""}
+    <div class="cardgrid">${cs.map(c=>{const st=c.util>50?"bad":c.util>30?"warn":"";return `<div class="ccard"><div class="nm"><span>${esc(c.name)}</span><span class="nmb"><button class="edit" data-setbal="card:${c.row}">Update balance</button><button class="edit" data-edit-card="${c.row}" aria-label="Edit ${esc(c.name)}">Edit</button></span></div>${scope==="Household"?`<div class="who">${esc(c.person)}</div>`:""}
       <div><div class="who">Live balance</div><div class="bal">${money(c.live)}</div></div><div class="track ${st}"><i style="width:${Math.max(0,Math.min(100,c.util))}%"></i></div>
       <div class="ft"><span>${c.util.toFixed(1)}% used</span><span>Limit <b>${money0(c.limit)}</b></span><span>APR <b>${(+c.apr).toFixed(2)}%</b></span></div></div>`;}).join("")}</div>
     <div style="margin-top:14px">${actions}</div></section>
@@ -1228,8 +1229,8 @@ function renderSheet(){
     body=`<div class="grid2">${fSel("person","Person",D.people,v.person)}${fInp("date","Date added","date",v.date)}
       ${fInp("name","Card name","text",v.name,`maxlength="80" placeholder="e.g. Chase Freedom"`,"full")}
       ${fInp("limit","Credit limit ($)","number",v.limit,`inputmode="decimal" step="0.01" min="0"`)}${fInp("apr","APR (%)","number",v.apr,`inputmode="decimal" step="0.01" min="0"`)}
-      ${fInp("balance","Starting balance ($)","number",v.balance,`inputmode="decimal" step="0.01"`,"full")}</div>
-      <p class="hint">${ed?"Starting balance is what the card owed when you added it. Logged charges and payments are added on top to get the live balance. Renaming keeps its history attached.":"Use the card's current balance. From now on, log charges and payments to keep the live balance right."}</p>`;
+      ${ed?"":fInp("balance","Current balance ($)","number",v.balance,`inputmode="decimal" step="0.01"`,"full")}</div>
+      <p class="hint">${ed?`Renaming keeps its history attached. To fix what it owes, use <button type="button" class="link" data-setbal="card:${S.rec.row}">Update balance</button>.`:"Use the card's current balance. From now on, log charges and payments to keep the live balance right."}</p>`;
   }
   if(k==="goal"){
     v.owner??="Both";
@@ -1298,6 +1299,18 @@ function renderSheet(){
         <label class="cb"><input type="checkbox" data-k="log" ${v.log?"checked":""}> Also log it as spending (${L.kind==="Car"?"Vehicle › Car Payment":"Other"})</label>
         <p class="hint">${esc(L.name)}: about ${money0(liveLoan(L).live)} left before this payment.</p>`; }
   }
+  if(k==="balance"){
+    const B=balTarget(v); v.mode??="set";
+    if(!B){ title="Update balance"; body=`<div class="empty">That ${v.what==="card"?"card":"loan"} was deleted.</div>`; canSave=false; }
+    else { title=`Update balance · ${B.name}`;
+      if(v.what==="loan") v.payment??=B.rec.payment;
+      body=`<div class="insight info"><div class="ic">${ICON.info}</div><div><div class="t">Right now the app shows ${money(B.live)}</div><div class="s">${v.what==="card"?"Starting balance plus the charges and payments you've logged.":"The balance you entered, less the payments you've logged since (with interest)."} If your ${v.what==="card"?"card's app or statement":"lender"} says something else, fix it here.</div></div></div>
+        ${segK("mode",[["set","Set the balance"],["add",v.what==="card"?"Add to it":"Borrowed more"]],v.mode,"How to change it")}
+        ${amtBig(v.amount,v.mode==="set"?"New balance":"Amount added")}
+        <p class="hint" style="margin-top:-4px">${v.mode==="set"?`Type what you owe today, exactly as your ${v.what==="card"?"card's app or statement":"lender's app or statement"} shows it.`:v.what==="card"?"For a balance transfer or anything you didn't log as a charge. (Everyday purchases go in as charges.)":"For a new draw, refinance, or anything added to what you owe."}</p>
+        ${v.what==="loan"?`${fInp("payment","Monthly payment ($)","number",v.payment,`inputmode="decimal" step="0.01" min="0"`)}<p class="hint" style="margin-top:-6px">Change it only if the new balance came with a new monthly payment.</p>`:""}
+        <div class="insight" id="balPrev">${balPreview(v)}</div>`; }
+  }
   const kinds=!ed&&ADD_KINDS.some(x=>x[0]===k)?`<div class="seg" role="group" aria-label="What to add">${ADD_KINDS.map(([id,l])=>`<button type="button" data-kind="${id}" aria-pressed="${id===k}">${l}</button>`).join("")}</div>
     <button type="button" class="datesjump" data-sheetgo="dates">${ICON.cal} See all bills & due dates <span aria-hidden="true">›</span></button>`:"";
   const del=ed&&["txn","cc","pay","card","goal","bill","loan"].includes(k);
@@ -1305,6 +1318,21 @@ function renderSheet(){
   $("#sheet").innerHTML=`<div class="sheet-h"><h2 id="sheetTitle">${esc(title)}</h2><button type="button" class="iconbtn" data-close="1" aria-label="Close">${ICON.x}</button></div>${kinds}
     <form id="sForm" style="display:flex;flex-direction:column;gap:12px" novalidate>${body}<div class="err" role="alert">${esc(S.err)}</div>${conf}
     ${canSave?`<div class="sticky-actions">${del?`<button type="button" class="btn ghost" data-del="1" style="margin-right:auto">Delete</button>`:""}${extraBtn}${ed&&(k==="txn"||k==="cc")?`<button type="button" class="btn" data-repeat-today="1">Repeat today</button>`:""}<button class="btn primary" type="submit" id="sSave">Save</button></div>`:""}</form>`;
+}
+/* Update balance: set what a card or loan owes today (or add to it). Logged history stays, the stored starting point is adjusted so the live balance comes out exactly right. */
+function balTarget(v){
+  if(v.what==="card"){ const c=cardsFor(D.people).find(x=>x.row===+v.ref); return c?{rec:c,name:c.name,live:c.live,logged:c.live-c.balance}:null; }
+  const l=D.loans.find(x=>x.id===v.ref); return l?{rec:l,name:l.name,live:liveLoan(l).live}:null;
+}
+function balNew(v){ const B=balTarget(v), a=r2(v.amount); if(!B||!(a>0||(v.mode==="set"&&String(v.amount).trim()!==""&&a===0))) return null; return v.mode==="add"?r2(B.live+a):a; }
+function balPreview(v){
+  const B=balTarget(v), n=balNew(v); if(!B) return "";
+  if(n==null) return `<div class="ic">${ICON.info}</div><div><div class="t">${v.mode==="set"?"Type the new balance":"Type the amount added"}</div><div class="s">You'll see the new payoff here.</div></div>`;
+  const d=n-B.live, chg=`${d>=0?"up":"down"} ${money(Math.abs(d))} from ${money(B.live)}`;
+  if(v.what==="card"){ const c=B.rec, u=c.limit>0?n/c.limit*100:0, pm=Math.max(25,n*0.01+n*c.apr/1200), am=amortize(n,c.apr,pm);
+    return `<div class="ic">${ICON.info}</div><div><div class="t">New balance ${money(n)}</div><div class="s">${chg} · ${u.toFixed(1)}% of the ${money0(c.limit)} limit${n>0&&!am.never?` · about ${am.n} months at minimum payments`:""}</div></div>`; }
+  const l=B.rec, pay=+v.payment||l.payment, am=amortize(n,l.apr,pay);
+  return `<div class="ic">${ICON.info}</div><div><div class="t">New balance ${money(n)}</div><div class="s">${chg} · ${am.never?"the payment doesn't cover the interest":am.n===0?"paid off":`paid off by ${mlabel(addMonths(curK(),am.n))} at ${money0(pay)}/mo, ${money0(am.interest)} interest`}</div></div>`;
 }
 /* keep digits and one decimal point (2 places); "$1,234.5" pasted becomes 1234.5 */
 function moneyText(t){ t=String(t).replace(/[^0-9.]/g,""); const i=t.indexOf("."); if(i>=0) t=t.slice(0,i+1)+t.slice(i+1).replace(/\./g,"").slice(0,2); return t; }
@@ -1320,6 +1348,7 @@ $("#sheet").addEventListener("click",async e=>{
   if(ds.sheetgo){ closeSheet(); view=ds.sheetgo; render(); scrollTo(0,0); return; }
   if(ds.switch){ grab(); openSheet(ds.switch,{vals:{person:S.vals.person}}); return; }
   if(ds.segk){ grab(); S.vals[ds.segk]=ds.segv; return rerender(); }
+  if(ds.setbal){ const [what,ref]=ds.setbal.split(":"); openSheet("balance",{vals:{what,ref,mode:"set"}}); return; }
   if(ds.del){ S.confirmDel=true; return rerender(); }
   if(ds.nodel){ S.confirmDel=false; return rerender(); }
   if(ds.yesdel){ b.disabled=true; const tab={txn:"Transactions",cc:"Transactions",pay:"Salaries",card:"CreditCards",goal:"Goals",bill:"Bills",loan:"Loans"}[S.kind];
@@ -1330,6 +1359,7 @@ $("#sheet").addEventListener("click",async e=>{
 $("#sheet").addEventListener("input",e=>{ if(!S) return; const k=e.target.dataset.k;
   if(k==="amount"||k==="target"||k==="starting"){ const el=e.target, clean=moneyText(el.value); if(clean!==el.value){ const p=el.selectionStart-(el.value.length-clean.length); el.value=clean; try{ el.setSelectionRange(p,p); }catch(_){} } }
   if(k==="share"){ grab(); rerender(); }
+  if(S.kind==="balance"&&(k==="amount"||k==="payment")){ grab(); const pv=$("#balPrev"); if(pv) pv.innerHTML=balPreview(S.vals); }
   if(k==="amount"||k==="target"||k==="starting"){ grab(); clearTimeout(S._t); S._t=setTimeout(()=>{ if(S&&(S.kind==="txn"||S.kind==="goal")) rerender(k); },500); }
 });
 $("#sheet").addEventListener("change",e=>{ if(!S) return; const k=e.target.dataset.k; if(!k) return; grab();
@@ -1374,6 +1404,13 @@ $("#sheet").addEventListener("submit",async e=>{
       need(l.name,"Name the loan."); need(l.balance>0,"Enter the current balance."); need(l.payment>0,"Enter the monthly payment."); need(l.dueDay>=1&&l.dueDay<=31,"Due day must be 1–31.");
       if(S.mode==="edit"){fn="updateRow";args=["Loans",S.rec.row,S.rec.fp,l];} else {fn="addLoan";args=[l];msg="Loan added";} }
     if(k==="loanpay"){ need(amt>0,"Enter an amount."); fn="addLoanPayment"; args=[{loanId:v.loanId,date:v.date,amount:amt,person:v.person,note:"",log:!!v.log,method:v.method}]; msg="Payment logged"; }
+    if(k==="balance"){ const B=balTarget(v), n=balNew(v); need(B,"That entry was deleted."); need(n!=null,v.mode==="set"?"Type the new balance.":"Type the amount added.");
+      if(v.what==="card"){ const c=B.rec; fn="updateRow"; args=["CreditCards",c.row,c.fp,{person:c.person,date:c.date,name:c.name,limit:c.limit,apr:c.apr,balance:r2(n-B.logged)}]; }
+      else { const l=B.rec, pay=r2(v.payment||l.payment); need(n>0,"A loan needs a balance above $0. To remove a paid-off loan, use Edit › Delete."); need(pay>0,"Enter the monthly payment.");
+        const paidToday=sum(D.loanPayments.filter(p=>p.loanId===l.id&&p.date===D.today).map(p=>p.amount));   // today's payments are already in the number you typed
+        fn="updateRow"; args=["Loans",l.row,l.fp,{person:l.person,name:l.name,kind:l.kind,lender:l.lender,balance:r2(n+paidToday),asOf:D.today,
+          original:v.mode==="add"?r2((l.original||B.live)+(n-B.live)):Math.max(l.original||0,n),apr:l.apr,payment:pay,dueDay:l.dueDay,start:l.start}]; }
+      msg=`Balance updated to ${money(n)}`; }
     if(k==="appname"){ const nm=String(v.name||"").replace(/\s+/g," ").trim(); need(nm,"Type a name for the app."); fn="setAppName"; args=[{name:nm,addYear:!!v.addYear}]; msg="App renamed"; }
     if(k==="goalmove"){ need(amt>0,"Enter an amount."); fn="addGoalMove"; args=[{goalId:v.goalId,date:v.date,person:v.person,amount:v.dir==="Withdraw"?-amt:amt,note:v.note||""}]; msg=v.dir==="Withdraw"?"Withdrawal saved":"Added to goal"; }
   }catch(err){ S.err=err.message; rerender(); return; }
@@ -1381,7 +1418,7 @@ $("#sheet").addEventListener("submit",async e=>{
   const kind=S.kind, r=await write(fn,...args);
   if(!S) return;
   if(r.ok){ closeSheet(); toast(msg);
-    if(kind==="card"){ view="cards"; ui.debt="cards"; render(); }
+    if(kind==="card"||(kind==="balance"&&ui.debt==="cards")){ view="cards"; ui.debt="cards"; render(); }
     else if(kind==="loan"||kind==="loanpay"){ if(view!=="dates"){ view="cards"; ui.debt="loans"; } render(); }
     else if(kind==="bill"){ view="dates"; render(); }
     else if(kind==="goal"||kind==="goalmove"){ view="plan"; ui.plan="goals"; render(); }
@@ -1400,6 +1437,7 @@ document.addEventListener("click",async e=>{
   const ds=b.dataset;
   if(ds.go){ view=ds.go; store.set("ff_view",view); render(); scrollTo(0,0); return; }
   if(ds.scope){ scope=ds.scope; store.set("ff_scope",scope); ui.sim=null; ui.act.sub=""; ui.act.cat=""; render(); return; }
+  if(ds.setbal){ const [what,ref]=ds.setbal.split(":"); openSheet("balance",{vals:{what,ref,mode:"set"}}); return; }
   if(ds.add){ const vals={}; if(ds.person) vals.person=ds.person; if(ds.goal) vals.goalId=ds.goal; if(ds.loan) vals.loanId=ds.loan; openSheet(ds.add,{vals}); return; }
   if(ds.repeat){ const t=D.transactions.find(x=>x.row===+ds.repeat); if(t) openSheet("txn",{vals:{person:t.person,type:t.type,amount:t.amount,desc:t.desc,cat:t.category,sub:t.sub,method:t.method,date:D.today}}); return; }
   if(ds.editTxn){ const t=D.transactions.find(x=>x.row===+ds.editTxn); if(t) openTxn(t); return; }
