@@ -1,7 +1,7 @@
 {
   "name": "lucien-home",
   "productName": "Lucien Home",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "description": "Desktop launcher for Lucien Family Planner and Family Budget Log",
   "main": "main.js",
   "author": "Lucien family"

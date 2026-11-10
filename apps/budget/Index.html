@@ -404,7 +404,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 <div id="tip" hidden></div>
 
 <script>
-const CLIENT_VERSION="2026.11.10";
+const CLIENT_VERSION="2026.11.10b";
 function showAppName(full){ document.querySelectorAll(".appname").forEach(e=>e.textContent=full); document.title=full; }
 if(/__APP_NAME__/.test(document.querySelector(".appname").textContent)) showAppName("Family Budget Log "+new Date().getFullYear());
 document.getElementById("lockVer").textContent="Version "+CLIENT_VERSION;
@@ -640,12 +640,14 @@ function billBuckets(){
 
 /* Payoff simulation. Minimum each month ≈ max($25, 1% of balance + that month's interest). */
 function minPay(bal,apr){ if(bal<=0) return 0; const i=bal*apr/1200; return Math.min(bal+i, Math.max(25, bal*0.01+i)); }
+/* What you pay on a card each month: the payment you entered, or the estimated minimum */
+function cardPay(c,bal=c.live){ if(bal<=0) return 0; const i=bal*(+c.apr||0)/1200; return c.payment>0?Math.min(bal+i,Math.max(c.payment,0)):minPay(bal,c.apr); }
 function simulate(cards, monthly, strategy, minimumsOnly){
   let bals=cards.map(c=>Math.max(0,c.live)); const n=cards.length, payoff=Array(n).fill(null), series=[sum(bals)];
   let month=0, interest=0, short=false;
   while(bals.some(b=>b>0.005) && month<600){
     month++;
-    const mins=bals.map((b,i)=>minPay(b,cards[i].apr));
+    const mins=bals.map((b,i)=>minimumsOnly?minPay(b,cards[i].apr):cardPay(cards[i],b));
     bals=bals.map((b,i)=>{ if(b<=0) return 0; const it=b*cards[i].apr/1200; interest+=it; return b+it; });
     let pay=minimumsOnly?sum(mins):monthly;
     if(pay<sum(mins)-0.005) short=true;
@@ -984,8 +986,8 @@ function goalsHTML(){
 function payoffHTML(){
   const cs=cardsFor().filter(c=>c.live>0.005);
   if(!cs.length) return `<section class="panel"><div class="ph"><h3>Card payoff planner</h3></div><div class="empty">${D.cards.some(c=>inScope(c.person))?"No card balances to pay off.":"No credit cards on file. Add them under Cards."}</div></section>`;
-  const mins=sum(cs.map(c=>minPay(c.live,c.apr)));
-  const st=ui.payoff[scope]||(ui.payoff[scope]={monthly:Math.max(50,Math.ceil((mins*1.6)/25)*25),strategy:"avalanche"});
+  const mins=sum(cs.map(c=>cardPay(c))), set=cs.every(c=>c.payment>0);
+  const st=ui.payoff[scope]||(ui.payoff[scope]={monthly:set?Math.ceil(mins):Math.max(50,Math.ceil((mins*1.6)/25)*25),strategy:"avalanche"});
   const plan=simulate(cs,st.monthly,st.strategy,false), other=simulate(cs,st.monthly,st.strategy==="avalanche"?"snowball":"avalanche",false), minOnly=simulate(cs,0,"avalanche",true);
   const when=n=>n>=600?"50+ years":mlabel(addMonths(curK(),n)), dur=n=>n>=600?"50+ years":n<12?`${n} month${n===1?"":"s"}`:`${Math.floor(n/12)} yr${Math.floor(n/12)>1?"s":""}${n%12?` ${n%12} mo`:""}`;
   const order=cs.map((c,i)=>({c,m:plan.payoff[i]})).sort((a,b)=>(a.m??999)-(b.m??999));
@@ -998,7 +1000,7 @@ function payoffHTML(){
       <div style="display:flex;flex-direction:column;gap:12px">
         <label class="f">Paying toward cards each month ($)<input id="poMonthly" type="number" inputmode="decimal" min="0" step="25" value="${st.monthly}"></label>
         <div class="seg" role="group" aria-label="Strategy"><button data-strategy="avalanche" aria-pressed="${st.strategy==="avalanche"}">Avalanche</button><button data-strategy="snowball" aria-pressed="${st.strategy==="snowball"}">Snowball</button></div>
-        <p class="hint">${st.strategy==="avalanche"?"Avalanche: extra money goes to the highest APR first. Usually the least interest.":"Snowball: extra money goes to the smallest balance first. Quicker early wins."} Minimums are estimated at about 1% of the balance plus interest (at least $25). Your statements may differ.</p>
+        <p class="hint">${st.strategy==="avalanche"?"Avalanche: extra money goes to the highest APR first. Usually the least interest.":"Snowball: extra money goes to the smallest balance first. Quicker early wins."} ${set?`Starts at the monthly payments you entered (${money0(mins)}).`:`Cards without a monthly payment use an estimated minimum: about 1% of the balance plus interest (at least $25).`} Add or change a card's payment under Debt › Edit.</p>
       </div>
       <div class="stats" style="align-content:start">
         <div class="stat"><div class="k">Debt-free</div><div class="v" style="font-family:var(--f-body)">${plan.short?"—":when(plan.months)}</div><div class="d">${plan.short?"Below the minimums":dur(plan.months)}</div></div>
@@ -1010,7 +1012,7 @@ function payoffHTML(){
     ${plan.short?`<div class="insight bad" style="margin-top:12px"><div class="ic">${ICON.bad}</div><div><div class="t">That's less than the estimated minimums</div><div class="s">The minimums come to about ${money0(mins)} this month. Pay at least that to avoid fees.</div></div><span></span></div>`:""}
     <div style="margin-top:14px">${legend([["Your plan",cssv("--s1")],["Minimums only",cssv("--s2"),true]])}${chartBox("payChart","Total card balance over time")}</div>
     <div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>#</th><th>Card</th><th class="r">Balance</th><th class="r">APR</th><th class="r">Est. minimum</th><th>Paid off</th></tr></thead><tbody>
-    ${order.map((o,i)=>`<tr><td class="num">${i+1}</td><td>${esc(o.c.name)}${scope==="Household"?` <span class="muted">· ${esc(o.c.person)}</span>`:""}</td><td class="r money">${money0(o.c.live)}</td><td class="r num">${(+o.c.apr).toFixed(2)}%</td><td class="r money">${money0(minPay(o.c.live,o.c.apr))}</td><td>${o.m?when(o.m):"—"}</td></tr>`).join("")}
+    ${order.map((o,i)=>`<tr><td class="num">${i+1}</td><td>${esc(o.c.name)}${scope==="Household"?` <span class="muted">· ${esc(o.c.person)}</span>`:""}</td><td class="r money">${money0(o.c.live)}</td><td class="r num">${(+o.c.apr).toFixed(2)}%</td><td class="r money">${money0(cardPay(o.c))}${o.c.payment>0?"":` <span class="muted">est.</span>`}</td><td>${o.m?when(o.m):"—"}</td></tr>`).join("")}
     </tbody></table></div></section>`;
 }
 
@@ -1114,7 +1116,10 @@ function cardsHTML(){
   return `<section class="panel"><div class="ph"><h3>Your cards</h3><span class="muted">${money0(tot)} of ${money0(lim)} · ${lim?(tot/lim*100).toFixed(1):0}% overall</span></div>
     <div class="cardgrid">${cs.map(c=>{const st=c.util>50?"bad":c.util>30?"warn":"";return `<div class="ccard"><div class="nm"><span>${esc(c.name)}</span><span class="nmb"><button class="edit" data-setbal="card:${c.row}">Update balance</button><button class="edit" data-edit-card="${c.row}" aria-label="Edit ${esc(c.name)}">Edit</button></span></div>${scope==="Household"?`<div class="who">${esc(c.person)}</div>`:""}
       <div><div class="who">Live balance</div><div class="bal">${money(c.live)}</div></div><div class="track ${st}"><i style="width:${Math.max(0,Math.min(100,c.util))}%"></i></div>
-      <div class="ft"><span>${c.util.toFixed(1)}% used</span><span>Limit <b>${money0(c.limit)}</b></span><span>APR <b>${(+c.apr).toFixed(2)}%</b></span></div></div>`;}).join("")}</div>
+      <div class="ft"><span>${c.util.toFixed(1)}% used</span><span>Limit <b>${money0(c.limit)}</b></span><span>APR <b>${(+c.apr).toFixed(2)}%</b></span></div>
+      ${c.live>0.005?(()=>{ const am=amortize(c.live,c.apr,c.payment>0?c.payment:minPay(c.live,c.apr));
+        return c.payment>0?`<div class="ft"><span>Paying <b>${money0(c.payment)}/mo</b></span><span>${am.never?`<b class="vwarn">Doesn't cover the interest</b>`:`Paid off by <b>${mlabel(addMonths(curK(),am.n))}</b>`}</span>${am.never?"":`<span>Interest left <b>${money0(am.interest)}</b></span>`}</div>`
+          :`<div class="ft"><button class="link" data-edit-card="${c.row}">Add your monthly payment</button><span class="muted">to see the payoff date</span></div>`; })():""}</div>`;}).join("")}</div>
     <div style="margin-top:14px">${actions}</div></section>
   <div class="cols"><section class="panel"><div class="ph"><h3>Utilization by card</h3><span class="muted">30% line marked</span></div>${chartBox("ccUtil","Utilization by card")}</section>
     <section class="panel"><div class="ph"><h3>Payments vs charges</h3><span class="muted">by month</span></div>${ctx.length?legend([["Charges",cssv("--s2")],["Payments",cssv("--s3")]])+chartBox("ccPC","Payments and charges by month"):`<div class="empty">No card charges or payments logged yet.</div>`}</section></div>
@@ -1228,7 +1233,8 @@ function renderSheet(){
     body=`<div class="grid2">${fSel("person","Person",D.people,v.person)}${fInp("date","Date added","date",v.date)}
       ${fInp("name","Card name","text",v.name,`maxlength="80" placeholder="e.g. Chase Freedom"`,"full")}
       ${fInp("limit","Credit limit ($)","number",v.limit,`inputmode="decimal" step="0.01" min="0"`)}${fInp("apr","APR (%)","number",v.apr,`inputmode="decimal" step="0.01" min="0"`)}
-      ${ed?"":fInp("balance","Current balance ($)","number",v.balance,`inputmode="decimal" step="0.01"`,"full")}</div>
+      ${ed?"":fInp("balance","Current balance ($)","number",v.balance,`inputmode="decimal" step="0.01"`)}${fInp("payment","Monthly payment ($)","number",v.payment,`inputmode="decimal" step="0.01" min="0" placeholder="e.g. 200"`,ed?"full":"")}</div>
+      <p class="hint" style="margin-top:-6px">What you usually pay on this card each month. Used for the payoff date and the payoff planner. Leave blank to estimate the minimum.</p>
       <p class="hint">${ed?`Renaming keeps its history attached. To fix what it owes, use <button type="button" class="link" data-setbal="card:${S.rec.row}">Update balance</button>.`:"Use the card's current balance. From now on, log charges and payments to keep the live balance right."}</p>`;
   }
   if(k==="goal"){
@@ -1328,8 +1334,8 @@ function balPreview(v){
   const B=balTarget(v), n=balNew(v); if(!B) return "";
   if(n==null) return `<div class="ic">${ICON.info}</div><div><div class="t">${v.mode==="set"?"Type the new balance":"Type the amount added"}</div><div class="s">You'll see the new payoff here.</div></div>`;
   const d=n-B.live, chg=`${d>=0?"up":"down"} ${money(Math.abs(d))} from ${money(B.live)}`;
-  if(v.what==="card"){ const c=B.rec, u=c.limit>0?n/c.limit*100:0, pm=Math.max(25,n*0.01+n*c.apr/1200), am=amortize(n,c.apr,pm);
-    return `<div class="ic">${ICON.info}</div><div><div class="t">New balance ${money(n)}</div><div class="s">${chg} · ${u.toFixed(1)}% of the ${money0(c.limit)} limit${n>0&&!am.never?` · about ${am.n} months at minimum payments`:""}</div></div>`; }
+  if(v.what==="card"){ const c=B.rec, u=c.limit>0?n/c.limit*100:0, pm=c.payment>0?c.payment:Math.max(25,n*0.01+n*c.apr/1200), am=amortize(n,c.apr,pm);
+    return `<div class="ic">${ICON.info}</div><div><div class="t">New balance ${money(n)}</div><div class="s">${chg} · ${u.toFixed(1)}% of the ${money0(c.limit)} limit${n>0?(am.never?` · ${money0(pm)}/mo doesn't cover the interest`:c.payment>0?` · paid off by ${mlabel(addMonths(curK(),am.n))} at ${money0(pm)}/mo`:` · about ${am.n} months at minimum payments`):""}</div></div>`; }
   const l=B.rec, pay=+v.payment||l.payment, am=amortize(n,l.apr,pay);
   return `<div class="ic">${ICON.info}</div><div><div class="t">New balance ${money(n)}</div><div class="s">${chg} · ${am.never?"the payment doesn't cover the interest":am.n===0?"paid off":`paid off by ${mlabel(addMonths(curK(),am.n))} at ${money0(pay)}/mo, ${money0(am.interest)} interest`}</div></div>`;
 }
@@ -1386,7 +1392,7 @@ $("#sheet").addEventListener("submit",async e=>{
       if(S.mode==="edit"){fn="updateRow";args=["Salaries",S.rec.row,S.rec.fp,p];} else {fn="addPay";args=[p];msg="Pay saved";} }
     if(k==="budget"){ need(amt>0,"Enter a budget."); need(v.month,"Pick a month."); fn="setBudget"; args=[{person:v.person,month:v.month,budget:amt}]; msg="Budget saved"; }
     if(k==="catbudget"){ need(amt>0,"Enter a monthly limit."); need(v.month,"Pick a start month."); fn="setCategoryBudget"; args=[{person:v.owner,month:v.month,category:v.category,budget:amt}]; msg=`${v.category} budget saved`; }
-    if(k==="card"){ const c={person:v.person,date:v.date||D.today,name:(v.name||"").trim(),limit:+v.limit,apr:+(v.apr||0),balance:+(v.balance||0)};
+    if(k==="card"){ const c={person:v.person,date:v.date||D.today,name:(v.name||"").trim(),limit:+v.limit,apr:+(v.apr||0),balance:+(v.balance||0),payment:+(v.payment||0)};
       need(c.name,"Add the card name."); need(c.limit>0,"Enter the credit limit."); need(c.apr>=0,"APR can't be negative.");
       if(S.mode==="edit"){fn="updateRow";args=["CreditCards",S.rec.row,S.rec.fp,c];} else {fn="addCard";args=[c];msg="Card added";} }
     if(k==="goal"){ const g={name:(v.name||"").trim(),owner:v.owner,target:+v.target,targetDate:v.targetDate||"",starting:+(v.starting||0)};
@@ -1404,7 +1410,7 @@ $("#sheet").addEventListener("submit",async e=>{
       if(S.mode==="edit"){fn="updateRow";args=["Loans",S.rec.row,S.rec.fp,l];} else {fn="addLoan";args=[l];msg="Loan added";} }
     if(k==="loanpay"){ need(amt>0,"Enter an amount."); fn="addLoanPayment"; args=[{loanId:v.loanId,date:v.date,amount:amt,person:v.person,note:"",log:!!v.log,method:v.method}]; msg="Payment logged"; }
     if(k==="balance"){ const B=balTarget(v), n=balNew(v); need(B,"That entry was deleted."); need(n!=null,v.mode==="set"?"Type the new balance.":"Type the amount added.");
-      if(v.what==="card"){ const c=B.rec; fn="updateRow"; args=["CreditCards",c.row,c.fp,{person:c.person,date:c.date,name:c.name,limit:c.limit,apr:c.apr,balance:r2(n-B.logged)}]; }
+      if(v.what==="card"){ const c=B.rec; fn="updateRow"; args=["CreditCards",c.row,c.fp,{person:c.person,date:c.date,name:c.name,limit:c.limit,apr:c.apr,balance:r2(n-B.logged),payment:c.payment||0}]; }
       else { const l=B.rec, pay=r2(v.payment||l.payment); need(n>0,"A loan needs a balance above $0. To remove a paid-off loan, use Edit › Delete."); need(pay>0,"Enter the monthly payment.");
         const paidToday=sum(D.loanPayments.filter(p=>p.loanId===l.id&&p.date===D.today).map(p=>p.amount));   // today's payments are already in the number you typed
         fn="updateRow"; args=["Loans",l.row,l.fp,{person:l.person,name:l.name,kind:l.kind,lender:l.lender,balance:r2(n+paidToday),asOf:D.today,
@@ -1441,7 +1447,7 @@ document.addEventListener("click",async e=>{
   if(ds.repeat){ const t=D.transactions.find(x=>x.row===+ds.repeat); if(t) openSheet("txn",{vals:{person:t.person,type:t.type,amount:t.amount,desc:t.desc,cat:t.category,sub:t.sub,method:t.method,date:D.today}}); return; }
   if(ds.editTxn){ const t=D.transactions.find(x=>x.row===+ds.editTxn); if(t) openTxn(t); return; }
   if(ds.editPay){ const s=D.salaries.find(x=>x.row===+ds.editPay); if(s) openSheet("pay",{rec:s,vals:{person:s.person,ptype:s.type,amount:s.amount,date:s.date,freq:s.frequency,source:s.source}}); return; }
-  if(ds.editCard){ const c=D.cards.find(x=>x.row===+ds.editCard); if(c) openSheet("card",{rec:c,vals:{person:c.person,date:c.date,name:c.name,limit:c.limit,apr:c.apr,balance:c.balance}}); return; }
+  if(ds.editCard){ const c=D.cards.find(x=>x.row===+ds.editCard); if(c) openSheet("card",{rec:c,vals:{person:c.person,date:c.date,name:c.name,limit:c.limit,apr:c.apr,balance:c.balance,payment:c.payment||""}}); return; }
   if(ds.editBill){ const b=D.bills.find(x=>x.id===ds.editBill); if(b) openSheet("bill",{rec:b,vals:{name:b.name,owner:b.owner,split:b.split,paidBy:b.paidBy,amount:b.amount,frequency:b.frequency,start:b.start,cat:b.category,sub:b.sub,method:b.method,autopay:b.autopay,notes:b.notes}}); return; }
   if(ds.editLoan){ const l=D.loans.find(x=>x.id===ds.editLoan); if(l) openSheet("loan",{rec:l,vals:{person:l.person,name:l.name,kind:l.kind,lender:l.lender,balance:l.balance,asOf:l.asOf,original:l.original||"",apr:l.apr,payment:l.payment,dueDay:l.dueDay,start:l.start}}); return; }
   if(ds.paybill){ const [type,id,due]=ds.paybill.split(":"), x=dueEntries(addDaysS(due,-1),addDaysS(due,1)).find(e=>e.type===type&&e.id===id&&e.due===due); if(x) openSheet("paybill",{vals:{x}}); return; }

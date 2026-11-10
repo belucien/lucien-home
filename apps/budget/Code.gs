@@ -34,7 +34,7 @@ const TABS = {
   Transactions:    ['Person', 'Date', 'Amount', 'Category', 'Sub-category', 'Payment Method', 'Description', 'Type'],
   Salaries:        ['Person', 'Date', 'Amount', 'Frequency', 'Source', 'Type'],
   Budgets:         ['Person', 'Date', 'Budget'],
-  CreditCards:     ['Person', 'Date', 'Card Name', 'Credit Limit', 'APR', 'Current Balance'],
+  CreditCards:     ['Person', 'Date', 'Card Name', 'Credit Limit', 'APR', 'Current Balance', 'Monthly Payment'],
   CategoryBudgets: ['Person', 'Month', 'Category', 'Budget'],
   Goals:           ['Id', 'Name', 'Owner', 'Target', 'Target Date', 'Starting', 'Created', 'Archived'],
   GoalMoves:       ['Goal Id', 'Date', 'Person', 'Amount', 'Note'],
@@ -50,7 +50,7 @@ const LOCK_MINUTES = 15;      // …per this many minutes, for everyone
 
 /* ================= web app ================= */
 
-const APP_VERSION = '2026.11.10';   // shown at the bottom of the app. Code.gs and Index.html should match.
+const APP_VERSION = '2026.11.10b';   // shown at the bottom of the app. Code.gs and Index.html should match.
 
 function appName_() {
   const pr = PropertiesService.getScriptProperties();
@@ -535,7 +535,7 @@ function loadAll_() {
       frequency: r.Frequency, source: r.Source, type: r.Type })),
     budgets: readTab_('Budgets').map(r => pack(r, { person: r.Person, date: r.Date, budget: num_(r.Budget) })),
     cards: readTab_('CreditCards').map(r => pack(r, { person: r.Person, date: r.Date, name: r['Card Name'],
-      limit: num_(r['Credit Limit']), apr: num_(r.APR), balance: num_(r['Current Balance']) })),
+      limit: num_(r['Credit Limit']), apr: num_(r.APR), balance: num_(r['Current Balance']), payment: num_(r['Monthly Payment']) })),
     catBudgets: readTab_('CategoryBudgets').map(r => pack(r, { person: r.Person, month: monthOf_(r.Month),
       category: r.Category, budget: num_(r.Budget) })),
     goals: readTab_('Goals').map(r => pack(r, { id: r.Id, name: r.Name, owner: r.Owner, target: num_(r.Target),
@@ -672,7 +672,8 @@ function cleanCard_(c) {
   const apr = Number(c.apr);
   if (!(apr >= 0)) throw new Error('APR can\'t be negative.');
   return { 'Person': oneOf_(c.person, PEOPLE, 'person'), 'Date': date_(c.date), 'Card Name': text_(c.name, 'Card name'),
-           'Credit Limit': positive_(c.limit, 'Credit limit'), 'APR': apr, 'Current Balance': Number(c.balance) || 0 };
+           'Credit Limit': positive_(c.limit, 'Credit limit'), 'APR': apr, 'Current Balance': Number(c.balance) || 0,
+           'Monthly Payment': Number(c.payment) > 0 ? Math.round(Number(c.payment) * 100) / 100 : '' };   // blank = estimate the minimum
 }
 
 function cleanGoal_(g) {
