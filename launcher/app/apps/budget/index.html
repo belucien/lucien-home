@@ -367,6 +367,8 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 .acct .anx{display:flex;flex-direction:column;gap:2px;font-size:.78rem;color:var(--muted);border-top:1px solid var(--line);padding-top:6px}
 .acct .anx span{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis} .acct .anx b{margin-left:auto;color:var(--fg);font-weight:500}
 .acct .anx i{width:6px;height:6px;border-radius:50%;flex:none} .acct .anx i.in{background:var(--good)} .acct .anx i.out{background:var(--bad)}
+.acct .af{flex-wrap:wrap;row-gap:2px} .acct .af span{white-space:nowrap}
+.acct.ro{cursor:default} .acct.ro:hover{border-color:var(--line)}
 .acct.add{align-items:center;justify-content:center;border-style:dashed;color:var(--muted);font-weight:600;min-height:90px}
 .banktot{display:flex;gap:24px;margin-bottom:12px;flex-wrap:wrap} .banktot .k{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600} .banktot .v{font-size:1.6rem;font-weight:600} .banktot .v.down{color:var(--warn)}
 .ledger{display:flex;flex-direction:column;margin-top:10px;font-size:.88rem}
@@ -420,7 +422,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 <div id="tip" hidden></div>
 
 <script>
-const CLIENT_VERSION="2026.11.16b";
+const CLIENT_VERSION="2026.11.16c";
 function showAppName(full){ document.querySelectorAll(".appname").forEach(e=>e.textContent=full); document.title=full; }
 if(/__APP_NAME__/.test(document.querySelector(".appname").textContent)) showAppName("Family Budget Log "+new Date().getFullYear());
 document.getElementById("lockVer").textContent="Version "+CLIENT_VERSION;
@@ -631,7 +633,10 @@ const Bank = (() => {
 
 /* Privacy on this device: pay and personal accounts show only for the person using it (Household shows totals) */
 const privPay=()=>scope!=="Household"&&scope!==me();
-const canSeeAcct=a=>a.owner==="Household"||a.owner===me();
+/* Household tab: joint accounts + each person's main checking (where their pay lands). Savings and other personal accounts: only on the owner's own tab. */
+const isMainAcct=a=>a.owner!=="Household"&&(Bank.payAcct(D,a.owner)||{}).id===a.id;
+const inHouseholdTab=a=>a.owner==="Household"||isMainAcct(a);
+const canSeeAcct=a=>a.owner==="Household"||a.owner===me();     // can open its details (others' main checking shows a balance only)
 let _bank=null,_bankD=null;
 const bankSum=()=>{ if(_bankD!==D){ _bankD=D; try{ _bank=Bank.summary(D,{occurrences,days:45}); }catch(e){ console.error(e); _bank=[]; } } return _bank; };
 const PS=()=>scope==="Household"?D.people:[scope];
@@ -1175,25 +1180,25 @@ function acctRule(a){ const r=[];
   const j=Bank.jointAcct(D); if(!a.getsPay&&j&&j.id===a.id) r.push("Household bills come out of here");
   return r; }
 function bankPanelHTML(){
-  const all=bankSum(), vis=all.filter(canSeeAcct);
+  const all=bankSum(), vis=scope==="Household"?all.filter(inHouseholdTab):all.filter(a=>a.owner===scope);
   if(privPay()) return `<section class="panel bankp"><div class="ph"><h3>Bank accounts</h3></div><div class="empty">${esc(scope)}'s pay and accounts are private to ${esc(scope)}. Household shows the totals.</div></section>`;
-  const list=scope==="Household"?vis:vis.filter(a=>a.owner===scope);
+  const list=vis;
   if(!all.length) return `<section class="panel bankp"><div class="ph"><h3>Bank accounts</h3></div><div class="insight info"><div class="ic">${ICON.info}</div><div><div class="t">Add your bank accounts</div><div class="s">Type each balance once. It then goes up with pay and down with bills, autopay, loan payments and spending, and shows where it's headed.</div></div></div><div style="margin-top:10px"><button class="btn primary sm" data-add="acct">Add an account</button></div></section>`;
-  const at=i=>a=>a.series[Math.min(i,a.series.length-1)], total=sum(all.map(a=>a.live)), total30=sum(all.map(at(30)));
+  const at=i=>a=>a.series[Math.min(i,a.series.length-1)], total=sum(list.map(a=>a.live)), total30=sum(list.map(at(30)));
   return `<section class="panel bankp"><div class="ph"><h3>Bank accounts</h3><button class="link" data-go="bank">Details</button></div>
-    ${scope==="Household"?`<div class="banktot"><div><div class="k">All accounts, both of you</div><div class="v money">${money(total)}</div></div><div><div class="k">In 30 days</div><div class="v money ${total30<total?"down":""}">${money0(total30)}</div><div class="hint" style="margin:0">expected pay and bills, before everyday spending</div></div></div>`:""}
-    <div class="acctgrid">${list.map(a=>{ const in30=at(30)(a), lowBad=a.low.amount<0, lowWarn=a.low.amount<100;
-      const nx=a.ahead.slice(0,2);
-      return `<button class="acct ${lowBad?"bad":lowWarn?"warn":""}" data-acct-open="${esc(a.id)}">
+    ${scope==="Household"?`<div class="banktot"><div><div class="k">Joint + both main accounts</div><div class="v money">${money(total)}</div></div><div><div class="k">In 30 days</div><div class="v money ${total30<total?"down":""}">${money0(total30)}</div><div class="hint" style="margin:0">expected pay and bills, before everyday spending</div></div></div>`:""}
+    <div class="acctgrid">${list.map(a=>{ const in30=at(30)(a), lowBad=a.low.amount<0, lowWarn=a.low.amount<100, own=canSeeAcct(a);
+      const nx=own?a.ahead.slice(0,2):[];
+      return `<${own?"button":"div"} class="acct ${lowBad?"bad":lowWarn?"warn":""} ${own?"":"ro"}" ${own?`data-acct-open="${esc(a.id)}"`:`title="${esc(a.owner)}'s details are private to ${esc(a.owner)}"`}>
         <div class="an"><span>${esc(a.name)}</span><span class="muted">${esc(a.owner==="Household"?"Joint":a.owner)} · ${esc(a.kind)}</span></div>
         <div class="ab money">${money(a.live)}</div>${spark(a.series,lowBad?"bad":"")}
         <div class="af"><span>In 30 days <b class="money">${money0(in30)}</b></span><span>Low <b class="money">${money0(a.low.amount)}</b>${a.low.date!==D.today?` ${dshort(a.low.date)}`:""}</span></div>
-        ${nx.length?`<div class="anx">${nx.map(e=>`<span><i class="${e.amount>0?"in":"out"}"></i>${dshort(e.date)} · ${esc(e.label)} <b class="money">${e.amount>0?"+":"−"}${money0(Math.abs(e.amount))}</b></span>`).join("")}</div>`:""}</button>`; }).join("")}
+        ${nx.length?`<div class="anx">${nx.map(e=>`<span><i class="${e.amount>0?"in":"out"}"></i>${dshort(e.date)} · ${esc(e.label)} <b class="money">${e.amount>0?"+":"−"}${money0(Math.abs(e.amount))}</b></span>`).join("")}</div>`:own?"":`<div class="anx"><span>Details are private to ${esc(a.owner)}</span></div>`}</${own?"button":"div"}>`; }).join("")}
       <button class="acct add" data-add="acct"><span>+ Add account</span></button></div></section>`;
 }
 function bankViewHTML(){
-  const all=bankSum().filter(canSeeAcct);
-  if(!all.length) return `<section class="panel"><div class="ph"><h3>Bank accounts</h3></div><div class="empty">No accounts you can see yet.</div><div style="margin-top:10px"><button class="btn primary sm" data-add="acct">Add an account</button></div></section>`;
+  const all=bankSum().filter(canSeeAcct).filter(a=>scope==="Household"?inHouseholdTab(a):a.owner===scope);
+  if(!all.length) return `<section class="panel"><div class="ph"><h3>Bank accounts</h3></div><div class="empty">${privPay()?`${esc(scope)}'s accounts are private to ${esc(scope)}.`:scope==="Household"?"No joint or main accounts yet.":"No accounts on this tab yet."}</div><div style="margin-top:10px"><button class="btn primary sm" data-add="acct">Add an account</button></div></section>`;
   const a=all.find(x=>x.id===ui.acct)||all[0]; ui.acct=a.id;
   later(()=>{ const el=$("#acctChart"); if(!el) return; const lab=a.series.map((_,i)=>{ const d=new Date(D.today+"T12:00:00"); d.setDate(d.getDate()+i); return MON[d.getMonth()]+" "+d.getDate(); });
     Viz.xy(el,lab,[{name:a.name,color:cssv("--s1"),data:a.series.map(v=>Math.max(0,v))}],{kind:"line"}); });
@@ -1492,7 +1497,7 @@ function renderSheet(){
       <div class="grid2">${fInp("perPaycheck","Moves in each paycheck ($)","number",v.perPaycheck,`inputmode="decimal" step="0.01" min="0" placeholder="0"`)}${fSel("fromPerson","From whose paycheck",D.people,v.fromPerson)}
         ${fInp("perPurchase","Moves in per purchase ($)","number",v.perPurchase,`inputmode="decimal" step="0.01" min="0" placeholder="0"`)}${fSel("purchasePerson","Whose purchases",D.people,v.purchasePerson)}</div>
       ${loans.length?`<div class="f">Loan payments that come out of this account<div class="tagpick">${loans.map(l=>`<label class="cb"><input type="checkbox" data-loanpick="${esc(l.id)}" ${v.paysLoans.includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}</div></div>`:""}
-      <p class="hint">Moves happen on the paycheck or purchase date: the money leaves that person's pay account and lands here. ${v.owner!=="Household"?`Only ${esc(v.owner)} sees this account; Household counts it in the total.`:"Both of you see joint accounts."}</p>`;
+      <p class="hint">Moves happen on the paycheck or purchase date: the money leaves that person's pay account and lands here. ${v.owner!=="Household"?(v.getsPay?`This is ${esc(v.owner)}'s main account: its balance also shows on Household (details stay private).`:`Only ${esc(v.owner)} sees this account, on the ${esc(v.owner)} tab.`):"Both of you see joint accounts on Household."}</p>`;
   }
   if(k==="balance"){
     const B=balTarget(v); v.mode??="set";

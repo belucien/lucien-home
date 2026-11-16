@@ -284,13 +284,17 @@
     return { summary, todayMoves, payAcct, jointAcct, STEP };
   })();
   
-  /* Bank accounts this person may see (joint ones + their own); the total counts every account */
-  function bank(D, me) {
+  /* Bank accounts for a tab: Household = joint accounts + each person's main checking (balance only for someone else's);
+     a person's own tab = all of their accounts; someone else's tab = nothing (private) */
+  function bank(D, me, scope) {
     if (!D || !(D.accounts || []).length) return null;
     const all = Bank.summary(D, { occurrences, days: 45 }), at = (a, i) => a.series[Math.min(i, a.series.length - 1)];
-    const vis = all.filter(a => a.owner === "Household" || a.owner === me);
-    return { accounts: vis.map(a => ({ id: a.id, name: a.name, kind: a.kind, owner: a.owner, live: a.live, in30: at(a, 30), low: a.low, series: a.series, next: a.ahead.slice(0, 3) })),
-      total: all.reduce((s, a) => s + a.live, 0), total30: all.reduce((s, a) => s + at(a, 30), 0) };
+    const isMain = a => a.owner !== "Household" && (Bank.payAcct(D, a.owner) || {}).id === a.id;
+    const list = scope === "Household" ? all.filter(a => a.owner === "Household" || isMain(a)) : scope === me ? all.filter(a => a.owner === me) : [];
+    return { scope, private: scope !== "Household" && scope !== me,
+      accounts: list.map(a => { const own = a.owner === "Household" || a.owner === me;
+        return { id: a.id, name: a.name, kind: a.kind, owner: a.owner, live: a.live, in30: at(a, 30), low: a.low, series: a.series, next: own ? a.ahead.slice(0, 3) : [] }; }),
+      total: list.reduce((s, a) => s + a.live, 0), total30: list.reduce((s, a) => s + at(a, 30), 0) };
   }
 
   const Calc = { bank, timeline, planner, budget, plannerCountdowns, occurrences, ymd, parseD, days, addDays, MON };
