@@ -23,6 +23,9 @@ jobs:
           V=$(python3 -c "import json;print(json.load(open('launcher/app/package.json'))['version'])")
           echo "version=$V" >> "$GITHUB_OUTPUT"
           if gh release view "v$V" >/dev/null 2>&1; then echo "v$V is already published"; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
+      - name: Health check (a failing check stops the release)
+        if: steps.v.outputs.skip != '1'
+        run: node launcher/test/check.js
       - name: Tools
         if: steps.v.outputs.skip != '1'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq nsis p7zip-full python3

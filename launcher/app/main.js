@@ -411,8 +411,8 @@ function installUpdate() {
 /* ---------------- maintenance ----------------
    Every other Monday at 12:00 AM (or the next time Lucien Home is running, if the PC was off) it tidies up:
    old update files, web caches (sign-ins are kept), old alerts, a fresh copy of both apps' numbers,
-   and a check for a new version. If nobody is using the PC, it also restarts itself fresh in the tray
-   (installing a waiting update while it's at it). If you're using it, the restart waits until you're away. */
+   If nobody is using the PC, it also restarts itself fresh in the tray; if you're using it, the restart waits until you're away.
+   It never installs a new version: new versions only come from the Update button. */
 const MAINT_ANCHOR = new Date(2026, 10, 23, 0, 0, 0).getTime();     // Mon Nov 23 2026, 12:00 AM local
 const FORTNIGHT = 14 * 24 * 3600 * 1000;
 function maintSlot(now = Date.now()) {          // the most recent "every other Monday, 12:00 AM" at or before now
@@ -447,9 +447,6 @@ async function runMaintenance(reason) {
     done.push(before !== settings.alerts.length ? `Tidied alerts (${before - settings.alerts.length} old ones)` : "Alerts tidy");
     // 4. fresh numbers from both apps (also rewrites the saved copy Home starts with)
     try { await refresh(); done.push("Refreshed Planner and Budget numbers"); } catch (e) { done.push("Couldn't refresh (offline?)"); }
-    // 5. new version?
-    try { await checkUpdate(false); } catch (e) {}
-    const u = localUpdate(); done.push(u ? `Update ${u.version} is ready` : "Up to date");
     settings.maint.last = Date.now(); settings.maint.pendingRestart = reason === "scheduled";
     settings.maint.log = [{ at: t0, reason, steps: done }, ...(settings.maint.log || [])].slice(0, 6);
     save(); send("maint", maintPayload());
@@ -463,9 +460,8 @@ function maybeFreshRestart() {
   if (Date.now() - (m.last || 0) > 18 * 3600 * 1000) { m.pendingRestart = false; save(); return; }
   if (!userAway()) return;
   m.pendingRestart = false; m.startHidden = true;
-  m.log[0] && m.log[0].steps.push(localUpdate() ? "Installed the update and restarted in the tray" : "Restarted fresh in the tray");
+  m.log[0] && m.log[0].steps.push("Restarted fresh in the tray");
   save();
-  if (localUpdate() && isWin) { installUpdate(); return; }
   app.relaunch({ args: process.argv.slice(1).filter(a => a !== "--hidden").concat(["--hidden"]) }); quitting = true; app.exit(0);
 }
 const maintPayload = () => ({ on: settings.maint.on !== false, last: settings.maint.last, next: maintNext(), log: settings.maint.log || [], running: maintRunning });

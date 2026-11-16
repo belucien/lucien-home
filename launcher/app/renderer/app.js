@@ -630,8 +630,9 @@ function setMaint() {
       <div class="it"><div class="tx"><b>Last run</b><span>${esc(when(m.last))}</span></div><button class="sbtn" data-maint-run="1" ${m.running ? "disabled" : ""}><svg><use href="#i-refresh"/></svg>${m.running ? "Running…" : "Run now"}</button></div>
     </div></div>
     <div class="grp"><h3>What it does</h3><div class="box"><div class="it" style="display:block"><div class="tx"><span>
-      Removes update files that are already installed · clears the apps' web caches (you stay signed in) · tidies old alerts · gets fresh numbers from the Planner and Budget · checks for a new version.
-      Then, only if nobody is using the PC, it restarts Lucien Home fresh in the tray and installs a waiting update. If you're using it, that waits until you step away.</span></div></div></div></div>
+      Removes update files that are already installed · clears the apps' web caches (you stay signed in) · tidies old alerts · gets fresh numbers from the Planner and Budget.
+      Then, only if nobody is using the PC, it restarts Lucien Home fresh in the tray. If you're using it, that waits until you step away.
+      It never installs a new version. New versions (the monthly review or changes you ask for) only install when you click Update.</span></div></div></div></div>
     ${(m.log || []).length ? `<div class="grp"><h3>Recent runs</h3><div class="box">${m.log.map(r => `<div class="it" style="display:block"><div class="tx"><b>${esc(when(r.at))}${r.reason === "by hand" ? " · by hand" : ""}</b><span>${r.steps.map(esc).join(" · ")}</span></div></div>`).join("")}</div></div>` : ""}`;
 }
 function setAbout() {
