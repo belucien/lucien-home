@@ -203,7 +203,7 @@
   
     const accts = D => D.accounts || [];
     const payAcct = (D, p) => { const a = accts(D).filter(x => x.owner === p); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || null; };
-    const jointAcct = D => { const a = accts(D).filter(x => x.owner === "Household"); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || null; };
+    const jointAcct = D => { const a = accts(D).filter(x => x.owner === "Household"); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || a[0] || null; };
     const loanAcct = (D, l) => accts(D).find(x => (x.paysLoans || []).includes(l.id)) || payAcct(D, l.person);
     const billAcct = (D, b, payer) => b.owner === "Household" ? (jointAcct(D) || payAcct(D, payer)) : payAcct(D, b.owner);
   

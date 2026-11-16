@@ -421,7 +421,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 <div id="tip" hidden></div>
 
 <script>
-const CLIENT_VERSION="2026.11.16c";
+const CLIENT_VERSION="2026.11.16d";
 function showAppName(full){ document.querySelectorAll(".appname").forEach(e=>e.textContent=full); document.title=full; }
 if(/__APP_NAME__/.test(document.querySelector(".appname").textContent)) showAppName("Family Budget Log "+new Date().getFullYear());
 document.getElementById("lockVer").textContent="Version "+CLIENT_VERSION;
@@ -549,7 +549,7 @@ const Bank = (() => {
 
   const accts = D => D.accounts || [];
   const payAcct = (D, p) => { const a = accts(D).filter(x => x.owner === p); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || null; };
-  const jointAcct = D => { const a = accts(D).filter(x => x.owner === "Household"); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || null; };
+  const jointAcct = D => { const a = accts(D).filter(x => x.owner === "Household"); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || a[0] || null; };
   const loanAcct = (D, l) => accts(D).find(x => (x.paysLoans || []).includes(l.id)) || payAcct(D, l.person);
   const billAcct = (D, b, payer) => b.owner === "Household" ? (jointAcct(D) || payAcct(D, payer)) : payAcct(D, b.owner);
 
@@ -1185,7 +1185,9 @@ function bankPanelHTML(){
   if(!all.length) return `<section class="panel bankp"><div class="ph"><h3>Bank accounts</h3></div><div class="insight info"><div class="ic">${ICON.info}</div><div><div class="t">Add your bank accounts</div><div class="s">Type each balance once. It then goes up with pay and down with bills, autopay, loan payments and spending, and shows where it's headed.</div></div></div><div style="margin-top:10px"><button class="btn primary sm" data-add="acct">Add an account</button></div></section>`;
   const at=i=>a=>a.series[Math.min(i,a.series.length-1)], total=sum(list.map(a=>a.live)), total30=sum(list.map(at(30)));
   return `<section class="panel bankp"><div class="ph"><h3>Bank accounts</h3><button class="link" data-go="bank">Details</button></div>
-    ${scope==="Household"?`<div class="banktot"><div><div class="k">Joint + both main accounts</div><div class="v money">${money(total)}</div></div><div><div class="k">In 30 days</div><div class="v money ${total30<total?"down":""}">${money0(total30)}</div><div class="hint" style="margin:0">expected pay and bills, before everyday spending</div></div></div>`:""}
+    ${scope==="Household"?(()=>{ const mains=list.filter(isMainAcct), joint=list.filter(a=>a.owner==="Household"), j=Bank.jointAcct(D);
+      const box=(k,arr,sub)=>arr.length?`<div><div class="k">${k}</div><div class="v money">${money(sum(arr.map(a=>a.live)))}</div><div class="hint" style="margin:0">${sub} · 30 days: ${money0(sum(arr.map(at(30))))}</div></div>`:"";
+      return `<div class="banktot">${box(mains.length>1?"Both checking accounts":"Main checking",mains,mains.map(a=>a.owner).join(" + "))}${box(joint.length>1?"Joint accounts":esc(joint[0]?joint[0].name:"Joint"),joint,j?`household bills come out of ${esc(j.name)}`:"joint")}</div>`; })():""}
     <div class="acctgrid">${list.map(a=>{ const in30=at(30)(a), lowBad=a.low.amount<0, lowWarn=a.low.amount<100, own=canSeeAcct(a);
       const nx=own?a.ahead.slice(0,2):[];
       return `<${own?"button":"div"} class="acct ${lowBad?"bad":lowWarn?"warn":""} ${own?"":"ro"}" ${own?`data-acct-open="${esc(a.id)}"`:`title="${esc(a.owner)}'s details are private to ${esc(a.owner)}"`}>
@@ -1492,7 +1494,7 @@ function renderSheet(){
       ${segK("kind",["Checking","Savings"],v.kind,"Kind")}
       ${segK("owner",[["Household","Joint (both of you)"],[me(),me()+" only"]],v.owner,"Whose account")}
       ${ed?"":amtBig(v.amount,"Balance today")}
-      <label class="cb"><input type="checkbox" data-k="getsPay" ${v.getsPay?"checked":""}> ${v.owner==="Household"?"Household bills come out of here":`${esc(v.owner)}'s paychecks land here`}</label>
+      <label class="cb"><input type="checkbox" data-k="getsPay" ${v.getsPay?"checked":""}> ${v.owner==="Household"?"Household bills come out of here (rent and every bill set to Household)":`${esc(v.owner)}'s paychecks land here (main account)`}</label>
       <div class="grid2">${fInp("perPaycheck","Moves in each paycheck ($)","number",v.perPaycheck,`inputmode="decimal" step="0.01" min="0" placeholder="0"`)}${fSel("fromPerson","From whose paycheck",D.people,v.fromPerson)}
         ${fInp("perPurchase","Moves in per purchase ($)","number",v.perPurchase,`inputmode="decimal" step="0.01" min="0" placeholder="0"`)}${fSel("purchasePerson","Whose purchases",D.people,v.purchasePerson)}</div>
       ${loans.length?`<div class="f">Loan payments that come out of this account<div class="tagpick">${loans.map(l=>`<label class="cb"><input type="checkbox" data-loanpick="${esc(l.id)}" ${v.paysLoans.includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}</div></div>`:""}
