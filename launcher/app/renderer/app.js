@@ -532,12 +532,12 @@ function alertsHTML() {
 }
 
 /* ---- Settings ---- */
-const SET_PAGES = [["general", "General", "i-gear"], ["apps", "Apps", "i-grid"], ["notify", "Notifications", "i-bell"], ["startup", "Startup & tray", "i-win"], ["updates", "Updates", "i-download"], ["about", "About", "i-info"]];
+const SET_PAGES = [["general", "General", "i-gear"], ["apps", "Apps", "i-grid"], ["notify", "Notifications", "i-bell"], ["startup", "Startup & tray", "i-win"], ["updates", "Updates", "i-download"], ["maint", "Maintenance", "i-refresh"], ["about", "About", "i-info"]];
 const tog = (key, on, label) => `<button class="tog" role="switch" aria-checked="${!!on}" aria-label="${esc(label)}" data-tog="${key}"></button>`;
 function settingsHTML() {
   const pg = S.setPage, nApps = ["planner", "budget"].filter(k => S.sum && S.sum[k] && S.sum[k].ok).length;
   const nav = SET_PAGES.map(([k, l, ic], i) => `${i === SET_PAGES.length - 1 ? `<div class="ssep"></div>` : ""}<button class="si ${pg === k ? "on" : ""}" data-set-page="${k}"><svg><use href="#${ic}"/></svg>${l}${k === "apps" ? `<em>${nApps} connected</em>` : k === "updates" && S.update ? `<em class="new">${esc(S.update.version)}</em>` : ""}</button>`).join("");
-  const body = pg === "updates" ? setUpdates() : pg === "general" ? setGeneral() : pg === "notify" ? setNotify() : pg === "startup" ? setStartup() : pg === "about" ? setAbout() : setApps();
+  const body = pg === "maint" ? setMaint() : pg === "updates" ? setUpdates() : pg === "general" ? setGeneral() : pg === "notify" ? setNotify() : pg === "startup" ? setStartup() : pg === "about" ? setAbout() : setApps();
   return `<div class="settings" style="display:grid"><aside class="snav">${nav}</aside><section class="sbody">${body}<div class="saved"><svg><use href="#i-check"/></svg>Changes save automatically</div></section></div>`;
 }
 function linkBlock(kind) {
@@ -622,6 +622,18 @@ function setUpdates() {
 
     </div></div>`;
 }
+function setMaint() {
+  const m = Object.assign({}, S.maint || {}, { on: !(S.settings.maint && S.settings.maint.on === false) }), when = t => t ? new Date(t).toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "never";
+  return `<h1>Maintenance</h1><p class="lead">A tune-up every other Monday at 12:00 AM keeps Lucien Home quick and tidy.</p>
+    <div class="grp"><div class="box">
+      <div class="it"><div class="tx"><b>Automatic maintenance</b><span>${m.on === false ? "Off." : `Next: ${esc(when(m.next))}. If the PC is off then, it runs the next time Lucien Home is open.`}</span></div>${tog("maint.on", m.on !== false, "Automatic maintenance")}</div>
+      <div class="it"><div class="tx"><b>Last run</b><span>${esc(when(m.last))}</span></div><button class="sbtn" data-maint-run="1" ${m.running ? "disabled" : ""}><svg><use href="#i-refresh"/></svg>${m.running ? "Running…" : "Run now"}</button></div>
+    </div></div>
+    <div class="grp"><h3>What it does</h3><div class="box"><div class="it" style="display:block"><div class="tx"><span>
+      Removes update files that are already installed · clears the apps' web caches (you stay signed in) · tidies old alerts · gets fresh numbers from the Planner and Budget · checks for a new version.
+      Then, only if nobody is using the PC, it restarts Lucien Home fresh in the tray and installs a waiting update. If you're using it, that waits until you step away.</span></div></div></div></div>
+    ${(m.log || []).length ? `<div class="grp"><h3>Recent runs</h3><div class="box">${m.log.map(r => `<div class="it" style="display:block"><div class="tx"><b>${esc(when(r.at))}${r.reason === "by hand" ? " · by hand" : ""}</b><span>${r.steps.map(esc).join(" · ")}</span></div></div>`).join("")}</div></div>` : ""}`;
+}
 function setAbout() {
   const p = S.sum && S.sum.planner, b = S.sum && S.sum.budget;
   return `<h1>About</h1><p class="lead">Lucien Home, the desktop launcher for your family apps.</p>
@@ -691,6 +703,7 @@ document.addEventListener("click", async e => {
   if (d.who) { await savePatch({ who: d.who }); return render(); }
   if (d.signin) return signIn();
   if (d.installUpdate || d.updbtn) return doUpdate();
+  if (d.maintRun) { S.maint = Object.assign({}, S.maint, { running: true }); render(); const r = await lh.maintRun(); if (r) S.maint = r; else S.maint.running = false; render(); toast("Maintenance done"); return; }
   if (d.checkUpdate) { const r = await lh.checkUpdate(); applyUpdate(r); toast(r.update ? `Version ${r.update.version} is ready` : "You're up to date"); return; }
   if (d.pickUpdateFolder) { const r = await lh.pickUpdateFolder(); if (r) { S.settings = r.settings; applyUpdate(r); } return; }
   if (d.resetUpdateFolder) { await savePatch({ updateFolder: "" }); const r = await lh.checkUpdate(); applyUpdate(r); return; }
@@ -795,6 +808,8 @@ lh.onToast(m => toast(m));
 lh.onApp(a => { const was = S.app.open; S.app = a; if (!!was !== !!a.open || was !== a.open) render(); else { appBar(); railApps(); $("#back").disabled = a.open ? !a.canBack : !S.hist.length; $("#fwd").disabled = a.open ? !a.canFwd : !S.fwd.length; } });
 lh.onMaximized(maxIcon);
 lh.onUpdate(applyUpdate);
+lh.onMaint(m => { S.maint = m; if (S.view === "settings") render(); });
+lh.maint().then(m => { S.maint = m; }).catch(() => {});
 function applyUpdate(r) {
   if (!r) return; S.update = r.update; if (r.checked) S.updateChecked = r.checked; if (r.folders) S.updateFolders = r.folders; if (r.github) S.github = r.github;
   const b = $("#updBtn"); b.hidden = !(S.update && S.update.ready); if (S.update) { b.innerHTML = `<svg><use href="#i-download"/></svg>Update <span>${esc(S.update.version)}</span>`; b.title = `Install Lucien Home ${S.update.version}`; b.dataset.updbtn = "1"; }

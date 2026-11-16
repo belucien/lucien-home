@@ -1,6 +1,6 @@
 /* Lucien Home: desktop launcher for Lucien Family Planner and Family Budget Log.
    Everything opens inside this one window: the apps, and any link they open. */
-const { app, BrowserWindow, WebContentsView, Tray, Menu, ipcMain, shell, nativeImage, Notification, net, dialog, safeStorage, nativeTheme, session } = require("electron");
+const { app, BrowserWindow, WebContentsView, Tray, Menu, ipcMain, shell, nativeImage, Notification, net, dialog, safeStorage, nativeTheme, session, powerMonitor } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -31,7 +31,8 @@ const DEFAULTS = {
   notify: { bills: true, events: true, quietStart: "21:30", quietEnd: "07:00" },
   showMoney: true, glanceScope: "Household",
   startWithWindows: false, closeToTray: true, trayTipShown: false, updateFolder: "", autoUpdateCheck: true,
-  alerts: [], notified: {}, bounds: null, maximized: false
+  alerts: [], notified: {}, bounds: null, maximized: false,
+  maint: { on: true, last: 0, pendingRestart: false, startHidden: false, log: [] }
 };
 const SECRET = [["apps", "budget", "token"], ["apps", "planner", "link"], ["apps", "budget", "link"]];
 function load() {
@@ -407,6 +408,74 @@ function installUpdate() {
   return { ok: true, version: u.version };
 }
 
+/* ---------------- maintenance ----------------
+   Every other Monday at 12:00 AM (or the next time Lucien Home is running, if the PC was off) it tidies up:
+   old update files, web caches (sign-ins are kept), old alerts, a fresh copy of both apps' numbers,
+   and a check for a new version. If nobody is using the PC, it also restarts itself fresh in the tray
+   (installing a waiting update while it's at it). If you're using it, the restart waits until you're away. */
+const MAINT_ANCHOR = new Date(2026, 10, 23, 0, 0, 0).getTime();     // Mon Nov 23 2026, 12:00 AM local
+const FORTNIGHT = 14 * 24 * 3600 * 1000;
+function maintSlot(now = Date.now()) {          // the most recent "every other Monday, 12:00 AM" at or before now
+  const a = new Date(MAINT_ANCHOR); let t = a.getTime(), k = 0;
+  while (true) { const n = new Date(a); n.setDate(a.getDate() + 14 * (k + 1)); if (n.getTime() > now) break; k++; t = n.getTime(); }
+  return now < MAINT_ANCHOR ? MAINT_ANCHOR - FORTNIGHT : t;
+}
+function maintNext(now = Date.now()) { const a = new Date(maintSlot(now)); a.setDate(a.getDate() + 14); return a.getTime(); }
+const idleMin = () => { try { return powerMonitor.getSystemIdleTime() / 60; } catch (e) { return 0; } };
+const userAway = () => !win || win.isDestroyed() || !win.isVisible() || win.isMinimized() || (!win.isFocused() && idleMin() >= 10);
+let maintRunning = false;
+async function runMaintenance(reason) {
+  if (maintRunning) return null; maintRunning = true;
+  const done = [], t0 = Date.now();
+  try {
+    // 1. update installers that are already installed (or older)
+    let freed = 0;
+    for (const dir of [UPDIR()]) { let names = []; try { names = fs.readdirSync(dir); } catch (e) {}
+      for (const f of names) { const m = SETUP_RE.exec(f); const full = path.join(dir, f);
+        if (/\.part$|\.tmp$/i.test(f)) { try { freed += fs.statSync(full).size; fs.unlinkSync(full); } catch (e) {} continue; }
+        if (!m) continue; const v = `${+m[1]}.${+m[2]}.${+m[3]}`;
+        if (!newer(v, app.getVersion())) { try { freed += fs.statSync(full).size; fs.unlinkSync(full); } catch (e) {} } } }
+    done.push(freed ? `Removed old update files (${Math.round(freed / 1048576)} MB)` : "No old update files");
+    // 2. web caches for the apps and web pages (keeps sign-ins and saved data)
+    for (const part of ["persist:planner", "persist:budget", "persist:web", "persist:apps"]) {
+      try { const ses = session.fromPartition(part); await ses.clearCache(); await ses.clearCodeCaches({}); await ses.clearStorageData({ storages: ["shadercache", "cachestorage", "serviceworkers"] }); } catch (e) {} }
+    try { await session.defaultSession.clearCache(); } catch (e) {}
+    done.push("Cleared web caches (sign-ins kept)");
+    // 3. old alerts and reminders already sent
+    const before = settings.alerts.length; settings.alerts = settings.alerts.filter(a => Date.now() - (a.at || 0) < 60 * 24 * 3600 * 1000).slice(0, 40);
+    const cutoff = Calc.addDays(Calc.ymd(new Date()), -40); for (const k of Object.keys(settings.notified)) if (settings.notified[k] < cutoff) delete settings.notified[k];
+    done.push(before !== settings.alerts.length ? `Tidied alerts (${before - settings.alerts.length} old ones)` : "Alerts tidy");
+    // 4. fresh numbers from both apps (also rewrites the saved copy Home starts with)
+    try { await refresh(); done.push("Refreshed Planner and Budget numbers"); } catch (e) { done.push("Couldn't refresh (offline?)"); }
+    // 5. new version?
+    try { await checkUpdate(false); } catch (e) {}
+    const u = localUpdate(); done.push(u ? `Update ${u.version} is ready` : "Up to date");
+    settings.maint.last = Date.now(); settings.maint.pendingRestart = reason === "scheduled";
+    settings.maint.log = [{ at: t0, reason, steps: done }, ...(settings.maint.log || [])].slice(0, 6);
+    save(); send("maint", maintPayload());
+    maybeFreshRestart();
+    return maintPayload();
+  } finally { maintRunning = false; }
+}
+/* A fresh start (and any waiting update) only while nobody's using Lucien Home; gives up after 18 hours */
+function maybeFreshRestart() {
+  const m = settings.maint; if (!m.pendingRestart) return;
+  if (Date.now() - (m.last || 0) > 18 * 3600 * 1000) { m.pendingRestart = false; save(); return; }
+  if (!userAway()) return;
+  m.pendingRestart = false; m.startHidden = true;
+  m.log[0] && m.log[0].steps.push(localUpdate() ? "Installed the update and restarted in the tray" : "Restarted fresh in the tray");
+  save();
+  if (localUpdate() && isWin) { installUpdate(); return; }
+  app.relaunch({ args: process.argv.slice(1).filter(a => a !== "--hidden").concat(["--hidden"]) }); quitting = true; app.exit(0);
+}
+const maintPayload = () => ({ on: settings.maint.on !== false, last: settings.maint.last, next: maintNext(), log: settings.maint.log || [], running: maintRunning });
+function maintTick() {
+  if (settings.maint.on === false) return;
+  if (!settings.maint.last) { settings.maint.last = Date.now(); save(); return; }   // first time: start counting from now
+  if (settings.maint.last < maintSlot()) runMaintenance("scheduled");
+  else maybeFreshRestart();
+}
+
 /* ---------------- tray ---------------- */
 function updateTray(s) {
   if (!tray) return;
@@ -452,6 +521,8 @@ ipcMain.handle("pickUpdateFolder", async () => { const r = await dialog.showOpen
 ipcMain.handle("openFolder", (e, p) => { if (p && updateFolders().includes(path.normalize(p))) shell.openPath(p); });
 ipcMain.handle("state", async () => ({ update, updateChecked: lastCheck, updateFolders: updateFolders(), github: updatePayload().github, justUpdated: takeJustUpdated(), settings: publicSettings(), summaries: state.at ? shape() : null, version: app.getVersion(), platform: process.platform, dataDir: DATA(), maximized: win ? win.isMaximized() : false, app: appState() }));
 ipcMain.handle("refresh", () => refresh());
+ipcMain.handle("maint", () => maintPayload());
+ipcMain.handle("maintRun", () => runMaintenance("by hand"));
 /* The Planner / Budget screens save through here, straight to the app's own Google script. */
 const READS = new Set(["getData", "getAll", "unlock"]);
 let soon = null;
@@ -554,10 +625,14 @@ app.on("second-instance", () => showMain());
 app.whenReady().then(() => {
   settings = load(); importFamily(); loadCache();
   session.fromPartition("persist:apps").setPermissionRequestHandler((wc, perm, cb) => cb(["clipboard-sanitized-write", "notifications", "media", "fullscreen"].includes(perm)));
-  createMain(!process.argv.includes("--hidden"));
+  const startHidden = process.argv.includes("--hidden") || settings.maint.startHidden;
+  if (settings.maint.startHidden) { settings.maint.startHidden = false; save(); }
+  createMain(!startHidden);
   buildTray(); applyStartup(); fixShortcut(); schedule();
   checkUpdate(false); watchUpdates(); setInterval(() => { if (settings.autoUpdateCheck) checkUpdate(false); }, 30 * 60 * 1000);
   refresh();
+  setTimeout(maintTick, 3 * 60 * 1000); setInterval(maintTick, 10 * 60 * 1000);
+  try { powerMonitor.on("resume", () => setTimeout(maintTick, 60 * 1000)); } catch (e) {}
 });
 app.on("before-quit", () => { quitting = true; save(); });
 app.on("window-all-closed", () => { if (!settings.closeToTray) app.quit(); });

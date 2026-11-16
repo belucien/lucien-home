@@ -6,7 +6,7 @@ contextBridge.exposeInMainWorld("lh", {
   open: inv("open"), closeApp: inv("closeApp"), cover: inv("cover"), appNav: inv("appNav"), win: inv("win"),
   signIn: inv("signIn"), signOut: inv("signOut"),
   checkUpdate: inv("checkUpdate"), installUpdate: inv("installUpdate"), pickUpdateFolder: inv("pickUpdateFolder"), openFolder: inv("openFolder"),
-  seenAlerts: inv("seenAlerts"), clearAlerts: inv("clearAlerts"),
+  maint: inv("maint"), maintRun: inv("maintRun"), seenAlerts: inv("seenAlerts"), clearAlerts: inv("clearAlerts"),
   pickCover: inv("pickCover"), resetCover: inv("resetCover"), openData: inv("openData"),
-  onSummaries: on("summaries"), onAlerts: on("alerts"), onNav: on("nav"), onToast: on("toast"), onApp: on("app"), onMaximized: on("maximized"), onUpdate: on("update")
+  onSummaries: on("summaries"), onAlerts: on("alerts"), onNav: on("nav"), onToast: on("toast"), onApp: on("app"), onMaximized: on("maximized"), onUpdate: on("update"), onMaint: on("maint")
 });
