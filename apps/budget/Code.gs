@@ -23,11 +23,11 @@ const SUB_CATEGORIES = [
   'Clothing', 'Electronics', 'Baby', 'Household', 'Education',
   'Car Insurance', 'Car Payment'
 ];
-const BILL_FREQS = ['Weekly', 'Biweekly', 'Monthly', 'Quarterly', 'Yearly', 'One-time'];
+const BILL_FREQS = ['Weekly', 'Biweekly', 'Monthly', 'Bi-monthly', 'Quarterly', 'Bi-annually', 'Yearly', 'One-time'];   // Bi-monthly = every 2 months, Bi-annually = twice a year
 const LOAN_KINDS = ['Car', 'Personal', 'Student', 'Mortgage', 'Other'];
 const PAYMENT_METHODS = ['Debit Card', 'Apple Pay', 'Amazon Pay', 'Privacy Card', 'Cash', 'Bank Account', 'PayPal'];
 const PAY_TYPES = ['Income', 'Savings', 'Stock', 'Tax Return'];
-const FREQUENCIES = ['Monthly', 'Biweekly', 'One-Time'];
+const FREQUENCIES = ['Weekly', 'Biweekly', 'Monthly', 'Bi-monthly', 'Quarterly', 'Bi-annually', 'Yearly', 'One-Time'];
 
 /* Tabs and their columns. The first four are the PC app's, in its order. */
 const TABS = {
@@ -50,7 +50,7 @@ const LOCK_MINUTES = 15;      // …per this many minutes, for everyone
 
 /* ================= web app ================= */
 
-const APP_VERSION = '2026.11.10b';   // shown at the bottom of the app. Code.gs and Index.html should match.
+const APP_VERSION = '2026.11.16';   // shown at the bottom of the app. Code.gs and Index.html should match.
 
 function appName_() {
   const pr = PropertiesService.getScriptProperties();
@@ -392,7 +392,7 @@ function occurrences_(b, from, to) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(st)) return out;
   const f = b.Frequency;
   if (f === 'One-time') { if (st >= from && st <= to) out.push(st); return out; }
-  const months = { Monthly: 1, Quarterly: 3, Yearly: 12 }[f], days = { Weekly: 7, Biweekly: 14 }[f];
+  const months = { Monthly: 1, 'Bi-monthly': 2, Quarterly: 3, 'Bi-annually': 6, Yearly: 12 }[f], days = { Weekly: 7, Biweekly: 14 }[f];
   if (!months && !days) return out;
   const [y, m, d] = st.split('-').map(Number), pad = n => (n < 10 ? '0' : '') + n;
   for (let i = 0; i < 1200; i++) {

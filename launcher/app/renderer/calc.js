@@ -77,7 +77,7 @@
   function occurrences(b, from, to) {
     const out = [], st = b.start; if (!isYmd(st)) return out;
     if (b.frequency === "One-time") { if (st >= from && st <= to) out.push(st); return out; }
-    const months = { Monthly: 1, Quarterly: 3, Yearly: 12 }[b.frequency], dd = { Weekly: 7, Biweekly: 14 }[b.frequency];
+    const months = { Monthly: 1, "Bi-monthly": 2, Quarterly: 3, "Bi-annually": 6, Yearly: 12 }[b.frequency], dd = { Weekly: 7, Biweekly: 14 }[b.frequency];
     if (!months && !dd) return out;
     for (let i = 0; i < 800; i++) { const d = months ? addMonthsKeepDay(st, i * months) : addDays(st, i * dd); if (d > to) break; if (d >= from) out.push(d); }
     return out;

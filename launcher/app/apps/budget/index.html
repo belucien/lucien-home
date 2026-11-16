@@ -405,7 +405,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 <div id="tip" hidden></div>
 
 <script>
-const CLIENT_VERSION="2026.11.10b";
+const CLIENT_VERSION="2026.11.16";
 function showAppName(full){ document.querySelectorAll(".appname").forEach(e=>e.textContent=full); document.title=full; }
 if(/__APP_NAME__/.test(document.querySelector(".appname").textContent)) showAppName("Family Budget Log "+new Date().getFullYear());
 document.getElementById("lockVer").textContent="Version "+CLIENT_VERSION;
@@ -488,7 +488,7 @@ function updateVersion(){
 }
 function apply(d){
   D=d; showAppName(appFullName()); D.goals=D.goals||[]; D.goalMoves=D.goalMoves||[]; D.catBudgets=D.catBudgets||[];
-  D.bills=D.bills||[]; D.billPaid=D.billPaid||[]; D.loans=D.loans||[]; D.loanPayments=D.loanPayments||[]; D.billFreqs=D.billFreqs||["Weekly","Biweekly","Monthly","Quarterly","Yearly","One-time"]; D.loanKinds=D.loanKinds||["Car","Personal","Student","Mortgage","Other"];
+  D.bills=D.bills||[]; D.billPaid=D.billPaid||[]; D.loans=D.loans||[]; D.loanPayments=D.loanPayments||[]; D.billFreqs=D.billFreqs||["Weekly","Biweekly","Monthly","Bi-monthly","Quarterly","Bi-annually","Yearly","One-time"]; D.loanKinds=D.loanKinds||["Car","Personal","Student","Mortgage","Other"];
   if(scope!=="Household" && !D.people.includes(scope)) scope="Household";
   $("#asof").textContent="Updated "+new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
   updateVersion();
@@ -602,7 +602,7 @@ function addMonthsKeepDay(s,n,day){ const [y,m,d]=s.split("-").map(Number), t=ne
 function occurrences(b,from,to){
   const out=[], st=b.start; if(!/^\d{4}-\d{2}-\d{2}$/.test(st||"")) return out;
   if(b.frequency==="One-time"){ if(st>=from&&st<=to) out.push(st); return out; }
-  const months={Monthly:1,Quarterly:3,Yearly:12}[b.frequency], days={Weekly:7,Biweekly:14}[b.frequency];
+  const months={Monthly:1,"Bi-monthly":2,Quarterly:3,"Bi-annually":6,Yearly:12}[b.frequency], days={Weekly:7,Biweekly:14}[b.frequency];
   for(let i=0;i<800;i++){ const d=months?addMonthsKeepDay(st,i*months):addDaysS(st,i*days); if(d>to) break; if(d>=from) out.push(d); }
   return out;
 }
@@ -1154,6 +1154,9 @@ function closeSheet(){ $("#scrim").hidden=true; S=null; }
 $("#scrim").addEventListener("click",e=>{ if(e.target.id==="scrim" && S && S.kind!=="whoami") closeSheet(); });
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&S&&S.kind!=="whoami") closeSheet(); });
 
+/* dropdown labels that spell out the "bi-" ones (the saved value stays short) */
+const FREQ_HINT={"Biweekly":"Biweekly (every 2 weeks)","Bi-monthly":"Bi-monthly (every 2 months)","Bi-annually":"Bi-annually (twice a year)","Quarterly":"Quarterly (every 3 months)"};
+const freqOpt=f=>[f,FREQ_HINT[f]||f];
 const fSel=(k,label,list,val,cls="")=>`<label class="f ${cls}">${label}<select data-k="${k}">${list.map(x=>Array.isArray(x)?`<option value="${esc(x[0])}" ${x[0]===val?"selected":""}>${esc(x[1])}</option>`:`<option ${x===val?"selected":""}>${esc(x)}</option>`).join("")}</select></label>`;
 const fInp=(k,label,type,val,extra="",cls="")=>`<label class="f ${cls}">${label}<input data-k="${k}" type="${type}" value="${esc(val??"")}" ${extra}></label>`;
 const segK=(k,list,val,label)=>`<div class="seg" role="group" aria-label="${esc(label)}">${list.map(x=>{const[v,l]=Array.isArray(x)?x:[x,x];return `<button type="button" data-segk="${k}" data-segv="${esc(v)}" aria-pressed="${v===val}">${esc(l)}</button>`;}).join("")}</div>`;
@@ -1208,7 +1211,7 @@ function renderSheet(){
     v.person??=defPerson(); v.ptype??="Income"; v.date??=D.today; v.freq??="Biweekly";
     title=ed?"Edit pay entry":"Add";
     body=`${segK("ptype",D.payTypes,v.ptype,"Type")}${amtBig(v.amount)}<div class="grid2">${fSel("person","Person",D.people,v.person)}${fInp("date","Date","date",v.date)}
-      ${fSel("freq","Frequency",D.frequencies,v.freq)}${fInp("source","Employer / source","text",v.source,`maxlength="200" list="srcList"`)}</div>
+      ${fSel("freq","Frequency",D.frequencies.map(freqOpt),v.freq)}${fInp("source","Employer / source","text",v.source,`maxlength="200" list="srcList"`)}</div>
       <datalist id="srcList">${uniqSorted(D.salaries.map(s=>s.source)).map(s=>`<option value="${esc(s)}">`).join("")}</datalist>`;
   }
   if(k==="budget"){
@@ -1265,7 +1268,7 @@ function renderSheet(){
     if(v.cat!=="Credit Card"&&!D.subCategories.includes(v.sub)) v.sub=D.subCategories.includes("Utilities")?"Utilities":D.subCategories[0];
     body=`${fInp("name","Bill","text",v.name,`maxlength="80" placeholder="e.g. Rent, Electric, Geico, Netflix"`)}${amtBig(v.amount)}
       <div class="f">Whose bill${segK("owner",[["Household","Household"],...D.people.map(p=>[p,p])],v.owner,"Whose bill")}</div>
-      <div class="grid2">${fSel("frequency","Repeats",D.billFreqs,v.frequency)}${fInp("start",v.frequency==="One-time"?"Due date":"Next due date","date",v.start)}
+      <div class="grid2">${fSel("frequency","Repeats",D.billFreqs.map(freqOpt),v.frequency)}${fInp("start",v.frequency==="One-time"?"Due date":"Next due date","date",v.start)}
       ${fSel("cat","Category",[...D.categories,...(cardOpts.length?["Credit Card"]:[])],v.cat)}${v.cat==="Credit Card"?fSel("sub","Card",cardOpts,v.sub):fSel("sub","Sub-category",D.subCategories,v.sub)}
       ${v.cat==="Credit Card"?"":fSel("method","Usually paid with",[["","—"],...D.paymentMethods.map(m=>[m,m])],v.method,"full")}
       ${fInp("notes","Notes (optional)","text",v.notes,`maxlength="200" placeholder="Account #, website…"`,"full")}</div>
