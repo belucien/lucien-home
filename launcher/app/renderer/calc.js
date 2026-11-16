@@ -226,9 +226,15 @@
         push(payAcct(D, s.person), s.date, s.amount, (s.source || "Pay") + (s.type === "Tax Return" ? " (tax return)" : ""), "pay");
         if (s.type === "Income") perPay(s.person, s.date);
       });
+      // anything logged as Stock goes into that person's Stocks account (and out of their checking, if set)
+      (D.salaries || []).filter(s => s.type === "Stock").forEach(s => {
+        const st = accts(D).find(x => x.owner === s.person && x.kind === "Stocks"); if (!st) return;
+        push(st, s.date, s.amount, (s.source || "Stock") + " (stock)", "stock");
+        if (st.fromChecking) push(payAcct(D, s.person), s.date, -s.amount, "To " + st.name, "move");
+      });
       (D.transactions || []).forEach(t => {
         if (fromBill(t) || fromLoan(t)) return;
-        const a = payAcct(D, t.person), card = t.category === "Credit Card";
+        const a = (t.paidFrom && accts(D).find(x => x.id === t.paidFrom)) || payAcct(D, t.person), card = t.category === "Credit Card";
         if (card && t.amount < 0) { push(a, t.date, t.amount, (t.sub || "Card") + " payment", "card"); return; }
         if (!card && t.type === "Income") { push(a, t.date, t.amount, t.desc, "pay"); return; }
         if (!card) push(a, t.date, -t.amount, t.desc, "spend");

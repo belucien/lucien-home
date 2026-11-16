@@ -422,7 +422,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 <div id="tip" hidden></div>
 
 <script>
-const CLIENT_VERSION="2026.11.16d";
+const CLIENT_VERSION="2026.11.16e";
 function showAppName(full){ document.querySelectorAll(".appname").forEach(e=>e.textContent=full); document.title=full; }
 if(/__APP_NAME__/.test(document.querySelector(".appname").textContent)) showAppName("Family Budget Log "+new Date().getFullYear());
 document.getElementById("lockVer").textContent="Version "+CLIENT_VERSION;
@@ -573,9 +573,15 @@ const Bank = (() => {
       push(payAcct(D, s.person), s.date, s.amount, (s.source || "Pay") + (s.type === "Tax Return" ? " (tax return)" : ""), "pay");
       if (s.type === "Income") perPay(s.person, s.date);
     });
+    // anything logged as Stock goes into that person's Stocks account (and out of their checking, if set)
+    (D.salaries || []).filter(s => s.type === "Stock").forEach(s => {
+      const st = accts(D).find(x => x.owner === s.person && x.kind === "Stocks"); if (!st) return;
+      push(st, s.date, s.amount, (s.source || "Stock") + " (stock)", "stock");
+      if (st.fromChecking) push(payAcct(D, s.person), s.date, -s.amount, "To " + st.name, "move");
+    });
     (D.transactions || []).forEach(t => {
       if (fromBill(t) || fromLoan(t)) return;
-      const a = payAcct(D, t.person), card = t.category === "Credit Card";
+      const a = (t.paidFrom && accts(D).find(x => x.id === t.paidFrom)) || payAcct(D, t.person), card = t.category === "Credit Card";
       if (card && t.amount < 0) { push(a, t.date, t.amount, (t.sub || "Card") + " payment", "card"); return; }
       if (!card && t.type === "Income") { push(a, t.date, t.amount, t.desc, "pay"); return; }
       if (!card) push(a, t.date, -t.amount, t.desc, "spend");
@@ -1368,7 +1374,7 @@ function renderSheet(){
       <div class="grid2">${fInp("desc","Description","text",v.desc,`list="descList" maxlength="200" placeholder="e.g. Costco" autocomplete="off"`,"full")}
       ${fSel("person","Person",D.people,v.person)}${fInp("date","Date","date",v.date)}
       ${fSel("cat","Main category",D.categories,v.cat)}${fSel("sub","Sub-category",D.subCategories,v.sub)}
-      ${fSel("method","Payment method",D.paymentMethods,v.method,"full")}</div>
+      ${fSel("method","Payment method",D.paymentMethods,v.method,"full")}${paidFromSel(v.person,v.paidFrom)}</div>
       <datalist id="descList">${uniqSorted(D.transactions.filter(t=>t.category!=="Credit Card").map(t=>t.desc)).slice(0,400).map(d=>`<option value="${esc(d)}">`).join("")}</datalist>
       ${!ed&&v.type==="Expense"?`<div class="splitbox"><label class="cb"><input type="checkbox" data-k="split" ${v.split?"checked":""}> Split with ${esc(other(v.person))}</label>
         ${v.split?`<label class="f">${esc(other(v.person))}'s share: <span class="num">${v.share}%</span><input type="range" data-k="share" min="5" max="95" step="5" value="${v.share}"></label>
@@ -1382,7 +1388,7 @@ function renderSheet(){
     if(cs.length && !cs.some(c=>c.name===v.card)) v.card=cs[0].name;
     title=ed?"Edit card entry":"Add";
     if(cs.length) body=`${segK("dir",["Charge","Payment"],v.dir,"Charge or payment")}${amtBig(v.amount)}<div class="grid2">${fSel("person","Person",D.people,v.person)}${fSel("card","Card",cs.map(c=>c.name),v.card)}
-      ${fInp("date","Date","date",v.date)}${fInp("desc","Description","text",v.desc,`maxlength="200" placeholder="${v.dir==="Payment"?"e.g. Statement payment":"e.g. Grocery store"}"`)}</div>`;
+      ${fInp("date","Date","date",v.date)}${fInp("desc","Description","text",v.desc,`maxlength="200" placeholder="${v.dir==="Payment"?"e.g. Statement payment":"e.g. Grocery store"}"`)}${v.dir==="Payment"?paidFromSel(v.person,v.paidFrom):""}</div>`;
     else { body=`<div class="grid2">${fSel("person","Person",D.people,v.person)}</div><div class="insight info"><div class="ic">${ICON.info}</div><div><div class="t">${esc(v.person)} has no cards yet</div><div class="s">Add one first, then log charges and payments here.</div></div><button type="button" class="go" data-switch="card">Add card</button></div>`; canSave=false; }
   }
   if(k==="pay"){
@@ -1390,7 +1396,8 @@ function renderSheet(){
     title=ed?"Edit pay entry":"Add";
     body=`${segK("ptype",D.payTypes,v.ptype,"Type")}${amtBig(v.amount)}<div class="grid2">${fSel("person","Person",D.people,v.person)}${fInp("date","Date","date",v.date)}
       ${fSel("freq","Frequency",D.frequencies.map(freqOpt),v.freq)}${fInp("source","Employer / source","text",v.source,`maxlength="200" list="srcList"`)}</div>
-      <datalist id="srcList">${uniqSorted(D.salaries.map(s=>s.source)).map(s=>`<option value="${esc(s)}">`).join("")}</datalist>`;
+      <datalist id="srcList">${uniqSorted(D.salaries.map(s=>s.source)).map(s=>`<option value="${esc(s)}">`).join("")}</datalist>
+      ${v.ptype==="Stock"?(()=>{ const st=D.accounts.find(a=>a.owner===v.person&&a.kind==="Stocks"); return st?`<p class="hint">Goes into ${esc(st.name)}${st.fromChecking?` and comes out of ${esc(v.person)}'s main checking`:""}.</p>`:v.person===me()?`<p class="hint">Add a Stocks account (Home › Bank accounts) and this goes into it.</p>`:""; })():""}`;
   }
   if(k==="budget"){
     v.person??=defPerson(); v.month??=curK();
@@ -1492,10 +1499,10 @@ function renderSheet(){
     title=ed?"Edit account":"Add a bank account";
     const loans=D.loans.filter(l=>l.person===me()||v.owner==="Household");
     body=`${fInp("name","Account name","text",v.name,`maxlength="60" placeholder="e.g. Family savings"`)}
-      ${segK("kind",["Checking","Savings"],v.kind,"Kind")}
+      ${segK("kind",["Checking","Savings","Stocks"],v.kind,"Kind")}
       ${segK("owner",[["Household","Joint (both of you)"],[me(),me()+" only"]],v.owner,"Whose account")}
       ${ed?"":amtBig(v.amount,"Balance today")}
-      <label class="cb"><input type="checkbox" data-k="getsPay" ${v.getsPay?"checked":""}> ${v.owner==="Household"?"Household bills come out of here (rent and every bill set to Household)":`${esc(v.owner)}'s paychecks land here (main account)`}</label>
+      ${v.kind==="Stocks"?`<label class="cb"><input type="checkbox" data-k="fromChecking" ${v.fromChecking?"checked":""}> Stock I log comes out of ${esc(v.owner==="Household"?me():v.owner)}'s main checking</label><p class="hint" style="margin-top:-6px">Anything logged as <b>Stock</b> under Pay &amp; savings is added here. Leave unticked if it comes straight from the paycheck (like a payroll IRA).</p>`:`<label class="cb"><input type="checkbox" data-k="getsPay" ${v.getsPay?"checked":""}> ${v.owner==="Household"?"Household bills come out of here (rent and every bill set to Household)":`${esc(v.owner)}'s paychecks land here (main account)`}</label>`}
       <div class="grid2">${fInp("perPaycheck","Moves in each paycheck ($)","number",v.perPaycheck,`inputmode="decimal" step="0.01" min="0" placeholder="0"`)}${fSel("fromPerson","From whose paycheck",D.people,v.fromPerson)}
         ${fInp("perPurchase","Moves in per purchase ($)","number",v.perPurchase,`inputmode="decimal" step="0.01" min="0" placeholder="0"`)}${fSel("purchasePerson","Whose purchases",D.people,v.purchasePerson)}</div>
       ${loans.length?`<div class="f">Loan payments that come out of this account<div class="tagpick">${loans.map(l=>`<label class="cb"><input type="checkbox" data-loanpick="${esc(l.id)}" ${v.paysLoans.includes(l.id)?"checked":""}> ${esc(l.name)}</label>`).join("")}</div></div>`:""}
@@ -1521,7 +1528,15 @@ function renderSheet(){
     <form id="sForm" style="display:flex;flex-direction:column;gap:12px" novalidate>${body}<div class="err" role="alert">${esc(S.err)}</div>${conf}
     ${canSave?`<div class="sticky-actions">${del?`<button type="button" class="btn ghost" data-del="1" style="margin-right:auto">Delete</button>`:""}${extraBtn}${ed&&(k==="txn"||k==="cc")?`<button type="button" class="btn" data-repeat-today="1">Repeat today</button>`:""}<button class="btn primary" type="submit" id="sSave">Save</button></div>`:""}</form>`;
 }
-const acctObj=a=>({name:a.name,kind:a.kind,owner:a.owner,getsPay:a.getsPay,perPaycheck:a.perPaycheck,fromPerson:a.fromPerson,perPurchase:a.perPurchase,purchasePerson:a.purchasePerson,paysLoans:a.paysLoans});
+const acctObj=a=>({name:a.name,kind:a.kind,owner:a.owner,getsPay:a.getsPay,perPaycheck:a.perPaycheck,fromPerson:a.fromPerson,perPurchase:a.perPurchase,purchasePerson:a.purchasePerson,paysLoans:a.paysLoans,fromChecking:a.fromChecking});
+/* "Paid from": blank = the person's main checking; or a joint account, or another of the person's own accounts (only shown to them) */
+function paidFromSel(person,val){
+  if(!D.accounts.length) return "";
+  const main=Bank.payAcct(D,person), opts=[["",`${person}'s main${main?` (${main.name})`:""}`]];
+  D.accounts.filter(a=>a.kind!=="Stocks"&&a.id!==(main||{}).id&&(a.owner==="Household"||(a.owner===person&&person===me()))).forEach(a=>opts.push([a.id,a.owner==="Household"?`${a.name} (joint)`:a.name]));
+  if(val&&!opts.some(o=>o[0]===val)){ const a=D.accounts.find(x=>x.id===val); opts.push([val,a?a.name:"Other account"]); }
+  return opts.length>1?fSel("paidFrom","Paid from",opts,val||"","full"):"";
+}
 /* Update balance: set what a card or loan owes today (or add to it). Logged history stays, the stored starting point is adjusted so the live balance comes out exactly right. */
 function balTarget(v){
   if(v.what==="acct"){ const a=bankSum().find(x=>x.id===v.ref); return a?{rec:D.accounts.find(x=>x.id===v.ref),name:a.name,live:a.live,acct:a}:null; }
@@ -1582,13 +1597,13 @@ $("#sheet").addEventListener("submit",async e=>{
   try{
     const v=S.vals, k=S.kind, amt=r2(v.amount), need=(c,m)=>{if(!c) throw new Error(m);};
     if(k==="txn"){ need(amt>0,"Enter an amount."); need((v.desc||"").trim(),"Add a description."); need(v.date,"Pick a date.");
-      const t={person:v.person,date:v.date,amount:amt,category:v.cat,sub:v.sub,method:v.method,desc:v.desc.trim(),type:v.type};
+      const t={person:v.person,date:v.date,amount:amt,category:v.cat,sub:v.sub,method:v.method,desc:v.desc.trim(),type:v.type,paidFrom:v.paidFrom||""};
       if(S.mode==="edit"){ fn="updateRow"; args=["Transactions",S.rec.row,S.rec.fp,t]; }
       else { if(v.split&&v.type==="Expense") t.split={pct:+v.share};
         else need(!D.transactions.some(x=>x.person===t.person&&x.date===t.date&&x.amount===amt&&String(x.desc).trim().toLowerCase()===t.desc.toLowerCase()),"This transaction already exists.");
         fn="addTransaction"; args=[t]; msg=t.split?"Saved as two entries":`${v.type==="Income"?"Income":"Spending"} saved`; } }
     if(k==="cc"){ need(amt>0,"Enter an amount."); need((v.desc||"").trim(),"Add a description."); const signed=v.dir==="Payment"?-amt:amt;
-      const t={person:v.person,date:v.date,amount:signed,category:"Credit Card",sub:v.card,method:"Credit Card",desc:v.desc.trim(),type:"Debt"};
+      const t={person:v.person,date:v.date,amount:signed,category:"Credit Card",sub:v.card,method:"Credit Card",desc:v.desc.trim(),type:"Debt",paidFrom:v.dir==="Payment"?(v.paidFrom||""):""};
       if(S.mode==="edit"){fn="updateRow";args=["Transactions",S.rec.row,S.rec.fp,t];} else {fn="addTransaction";args=[t];msg=v.dir==="Payment"?"Payment saved":"Charge saved";} }
     if(k==="pay"){ need(amt>0,"Enter an amount."); need((v.source||"").trim(),"Add the employer or source.");
       const p={person:v.person,date:v.date,amount:amt,frequency:v.freq,source:v.source.trim(),type:v.ptype};
@@ -1622,7 +1637,8 @@ $("#sheet").addEventListener("submit",async e=>{
           original:v.mode==="add"?r2((l.original||B.live)+(n-B.live)):Math.max(l.original||0,n),apr:l.apr,payment:pay,dueDay:l.dueDay,start:l.start}]; }
       msg=`Balance updated to ${money(n)}`; }
     if(k==="acct"){ need(String(v.name||"").trim(),"Name the account.");
-      const o={name:String(v.name).trim(),kind:v.kind,owner:v.owner,getsPay:!!v.getsPay,perPaycheck:r2(v.perPaycheck),fromPerson:v.fromPerson,perPurchase:r2(v.perPurchase),purchasePerson:v.purchasePerson,paysLoans:v.paysLoans||[]};
+      need(!(v.kind==="Stocks"&&v.owner==="Household"),"A Stocks account belongs to one person. Pick whose it is.");
+      const o={name:String(v.name).trim(),kind:v.kind,owner:v.owner,getsPay:v.kind!=="Stocks"&&!!v.getsPay,fromChecking:v.kind==="Stocks"&&!!v.fromChecking,perPaycheck:r2(v.perPaycheck),fromPerson:v.fromPerson,perPurchase:r2(v.perPurchase),purchasePerson:v.purchasePerson,paysLoans:v.paysLoans||[]};
       if(S.mode==="edit"){ fn="updateRow"; args=["Accounts",S.rec.row,S.rec.fp,Object.assign(o,{balance:S.rec.base,asOf:S.rec.asOf})]; msg="Account saved"; }
       else { need(String(v.amount??"").trim()!=="","Type today's balance."); const tmp=Object.assign({id:"_new",base:0,asOf:D.today},o);
         const off=Bank.todayMoves(Object.assign({},D,{accounts:D.accounts.concat([tmp])}),tmp);
@@ -1645,8 +1661,8 @@ $("#sheet").addEventListener("submit",async e=>{
 /* ======================================================================
    EVENTS (page)
    ====================================================================== */
-const openTxn=t=>{ if(t.category==="Credit Card") openSheet("cc",{rec:t,vals:{person:t.person,dir:t.amount<0?"Payment":"Charge",amount:Math.abs(t.amount),card:t.sub,date:t.date,desc:t.desc}});
-  else openSheet("txn",{rec:t,vals:{person:t.person,type:t.type,amount:t.amount,desc:t.desc,cat:t.category,sub:t.sub,method:t.method,date:t.date}}); };
+const openTxn=t=>{ if(t.category==="Credit Card") openSheet("cc",{rec:t,vals:{person:t.person,dir:t.amount<0?"Payment":"Charge",amount:Math.abs(t.amount),card:t.sub,date:t.date,desc:t.desc,paidFrom:t.paidFrom||""}});
+  else openSheet("txn",{rec:t,vals:{person:t.person,type:t.type,amount:t.amount,desc:t.desc,cat:t.category,sub:t.sub,method:t.method,date:t.date,paidFrom:t.paidFrom||""}}); };
 document.addEventListener("click",async e=>{
   if(e.target.closest("#sheet")) return;
   const b=e.target.closest("button,[data-edit-cb]"); if(!b) return;
@@ -1655,7 +1671,7 @@ document.addEventListener("click",async e=>{
   if(ds.scope){ scope=ds.scope; store.set("ff_scope",scope); ui.sim=null; ui.act.sub=""; ui.act.cat=""; render(); return; }
   if(ds.setbal){ const [what,ref]=ds.setbal.split(":"); openSheet("balance",{vals:{what,ref,mode:"set"}}); return; }
   if(ds.acctOpen){ ui.acct=ds.acctOpen; view="bank"; render(); scrollTo(0,0); return; }
-  if(ds.editAcct){ const a=D.accounts.find(x=>x.id===ds.editAcct); if(a) openSheet("acct",{rec:a,vals:{name:a.name,kind:a.kind,owner:a.owner,getsPay:a.getsPay,perPaycheck:a.perPaycheck||"",fromPerson:a.fromPerson||me(),perPurchase:a.perPurchase||"",purchasePerson:a.purchasePerson||me(),paysLoans:(a.paysLoans||[]).slice()}}); return; }
+  if(ds.editAcct){ const a=D.accounts.find(x=>x.id===ds.editAcct); if(a) openSheet("acct",{rec:a,vals:{name:a.name,kind:a.kind,owner:a.owner,getsPay:a.getsPay,fromChecking:a.fromChecking,perPaycheck:a.perPaycheck||"",fromPerson:a.fromPerson||me(),perPurchase:a.perPurchase||"",purchasePerson:a.purchasePerson||me(),paysLoans:(a.paysLoans||[]).slice()}}); return; }
   if(ds.add){ const vals={}; if(ds.person) vals.person=ds.person; if(ds.goal) vals.goalId=ds.goal; if(ds.loan) vals.loanId=ds.loan; openSheet(ds.add,{vals}); return; }
   if(ds.repeat){ const t=D.transactions.find(x=>x.row===+ds.repeat); if(t) openSheet("txn",{vals:{person:t.person,type:t.type,amount:t.amount,desc:t.desc,cat:t.category,sub:t.sub,method:t.method,date:D.today}}); return; }
   if(ds.editTxn){ const t=D.transactions.find(x=>x.row===+ds.editTxn); if(t) openTxn(t); return; }

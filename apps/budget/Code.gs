@@ -31,7 +31,7 @@ const FREQUENCIES = ['Weekly', 'Biweekly', 'Monthly', 'Bi-monthly', 'Quarterly',
 
 /* Tabs and their columns. The first four are the PC app's, in its order. */
 const TABS = {
-  Transactions:    ['Person', 'Date', 'Amount', 'Category', 'Sub-category', 'Payment Method', 'Description', 'Type'],
+  Transactions:    ['Person', 'Date', 'Amount', 'Category', 'Sub-category', 'Payment Method', 'Description', 'Type', 'Paid From'],
   Salaries:        ['Person', 'Date', 'Amount', 'Frequency', 'Source', 'Type'],
   Budgets:         ['Person', 'Date', 'Budget'],
   CreditCards:     ['Person', 'Date', 'Card Name', 'Credit Limit', 'APR', 'Current Balance', 'Monthly Payment'],
@@ -42,7 +42,7 @@ const TABS = {
   BillPaid:        ['Bill Id', 'Due Date', 'Paid Date', 'Person', 'Amount', 'How'],
   Loans:           ['Id', 'Person', 'Name', 'Kind', 'Lender', 'Original', 'Balance', 'As Of Date', 'APR', 'Payment', 'Due Day', 'Start Date'],
   LoanPayments:    ['Loan Id', 'Date', 'Person', 'Amount', 'Note'],
-  Accounts:        ['Id', 'Name', 'Kind', 'Owner', 'Balance', 'As Of Date', 'Gets Pay', 'Per Paycheck', 'From Person', 'Per Purchase', 'Purchase Person', 'Pays Loans', 'Created']
+  Accounts:        ['Id', 'Name', 'Kind', 'Owner', 'Balance', 'As Of Date', 'Gets Pay', 'Per Paycheck', 'From Person', 'Per Purchase', 'Purchase Person', 'Pays Loans', 'Created', 'From Checking']
 };
 const HOUSEHOLD = 'Household';
 
@@ -51,7 +51,7 @@ const LOCK_MINUTES = 15;      // …per this many minutes, for everyone
 
 /* ================= web app ================= */
 
-const APP_VERSION = '2026.11.16d';   // shown at the bottom of the app. Code.gs and Index.html should match.
+const APP_VERSION = '2026.11.16e';   // shown at the bottom of the app. Code.gs and Index.html should match.
 
 function appName_() {
   const pr = PropertiesService.getScriptProperties();
@@ -307,11 +307,12 @@ function cleanAccount_(a) {
   const per = money(a.perPaycheck, 'Amount per paycheck'), buy = money(a.perPurchase, 'Amount per purchase');
   return {
     'Name': text_(a.name, 'Account name'),
-    'Kind': oneOf_(a.kind, ['Checking', 'Savings'], 'kind of account'),
+    'Kind': oneOf_(a.kind, ['Checking', 'Savings', 'Stocks'], 'kind of account'),
     'Owner': oneOf_(a.owner, PEOPLE.concat([HOUSEHOLD]), 'owner'),
     'Balance': Math.round(Number(a.balance || 0) * 100) / 100,
     'As Of Date': "'" + date_(a.asOf || today_()),
-    'Gets Pay': !!a.getsPay,
+    'Gets Pay': a.kind === 'Stocks' ? false : !!a.getsPay,
+    'From Checking': a.kind === 'Stocks' && !!a.fromChecking,
     'Per Paycheck': per || '', 'From Person': per ? oneOf_(a.fromPerson, PEOPLE, 'whose paycheck') : '',
     'Per Purchase': buy || '', 'Purchase Person': buy ? oneOf_(a.purchasePerson, PEOPLE, 'whose purchases') : '',
     'Pays Loans': (Array.isArray(a.paysLoans) ? a.paysLoans : []).map(String).filter(Boolean).join(',')
@@ -561,7 +562,7 @@ function loadAll_() {
     paymentMethods: PAYMENT_METHODS, payTypes: PAY_TYPES, frequencies: FREQUENCIES, billFreqs: BILL_FREQS, loanKinds: LOAN_KINDS,
     today: today_(),
     transactions: readTab_('Transactions').map(r => pack(r, { person: r.Person, date: r.Date, amount: num_(r.Amount),
-      category: r.Category, sub: r['Sub-category'], method: r['Payment Method'], desc: r.Description, type: r.Type })),
+      category: r.Category, sub: r['Sub-category'], method: r['Payment Method'], desc: r.Description, type: r.Type, paidFrom: r['Paid From'] || '' })),
     salaries: readTab_('Salaries').map(r => pack(r, { person: r.Person, date: r.Date, amount: num_(r.Amount),
       frequency: r.Frequency, source: r.Source, type: r.Type })),
     budgets: readTab_('Budgets').map(r => pack(r, { person: r.Person, date: r.Date, budget: num_(r.Budget) })),
@@ -584,7 +585,7 @@ function loadAll_() {
     loanPayments: readTab_('LoanPayments').map(r => pack(r, { loanId: r['Loan Id'], date: r.Date, person: r.Person, amount: num_(r.Amount), note: r.Note })),
     accounts: readTab_('Accounts').map(r => pack(r, { id: r.Id, name: r.Name, kind: r.Kind, owner: r.Owner, base: num_(r.Balance), asOf: r['As Of Date'],
       getsPay: truthy_(r['Gets Pay']), perPaycheck: num_(r['Per Paycheck']), fromPerson: r['From Person'], perPurchase: num_(r['Per Purchase']),
-      purchasePerson: r['Purchase Person'], paysLoans: String(r['Pays Loans'] || '').split(',').filter(Boolean) }))
+      purchasePerson: r['Purchase Person'], paysLoans: String(r['Pays Loans'] || '').split(',').filter(Boolean), fromChecking: truthy_(r['From Checking']) }))
   };
 }
 
@@ -671,18 +672,24 @@ function isDupTxn_(rows, t) {
 
 function txnRow_(t) {
   return { 'Person': t.person, 'Date': t.date, 'Amount': t.amount, 'Category': t.category,
-           'Sub-category': t.sub, 'Payment Method': t.method, 'Description': t.desc, 'Type': t.type };
+           'Sub-category': t.sub, 'Payment Method': t.method, 'Description': t.desc, 'Type': t.type, 'Paid From': t.paidFrom || '' };
 }
 
+/* Optional bank account a transaction came out of (blank = the person's main checking) */
+function paidFrom_(id) {
+  id = String(id || '').trim(); if (!id) return '';
+  if (!readTab_('Accounts').some(a => a.Id === id)) throw new Error('That bank account was deleted. Pick another.');
+  return id;
+}
 function cleanTxn_(t) {
   t = t || {};
-  const person = oneOf_(t.person, PEOPLE, 'person');
+  const person = oneOf_(t.person, PEOPLE, 'person'), paidFrom = paidFrom_(t.paidFrom);
   const date = date_(t.date);
   if (t.category === 'Credit Card') {
     const amount = Math.round(Number(t.amount) * 100) / 100;
     if (!amount) throw new Error('Amount must be more than $0.');
     return { person, date, amount, category: 'Credit Card', sub: text_(t.sub, 'Card'),
-             method: 'Credit Card', desc: text_(t.desc, 'Description'), type: 'Debt' };
+             method: 'Credit Card', desc: text_(t.desc, 'Description'), type: 'Debt', paidFrom };
   }
   return {
     person, date, amount: positive_(t.amount),
@@ -690,7 +697,7 @@ function cleanTxn_(t) {
     sub: oneOf_(t.sub, SUB_CATEGORIES, 'sub-category'),
     method: oneOf_(t.method, PAYMENT_METHODS, 'payment method'),
     desc: text_(t.desc, 'Description'),
-    type: oneOf_(t.type, ['Expense', 'Income'], 'type')
+    type: oneOf_(t.type, ['Expense', 'Income'], 'type'), paidFrom
   };
 }
 
