@@ -186,7 +186,114 @@
     return out.sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || "") || a.name.localeCompare(b.name));
   }
 
-  const Calc = { timeline, planner, budget, plannerCountdowns, occurrences, ymd, parseD, days, addDays, MON };
+/* ---- Bank accounts: live balances and what's coming. Shared by the Budget Log and Lucien Home. ----
+     An account's balance = what you typed (as of a day) + everything recorded since:
+     pay in, spending and card payments out, bills and loan payments out, and automatic moves
+     (a set amount each paycheck, or a set amount per purchase) between accounts.
+     Credit-card charges don't touch the bank; paying the card does. */
+  const Bank = (() => {
+    const STEP = { Weekly: [0, 7], Biweekly: [0, 14], Monthly: [1, 0], "Bi-monthly": [2, 0], Quarterly: [3, 0], "Bi-annually": [6, 0], Yearly: [12, 0] };
+    const pad = n => String(n).padStart(2, "0");
+    const ymdOf = d => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    const parse = s => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); };
+    const addD = (s, n) => { const d = parse(s); d.setDate(d.getDate() + n); return ymdOf(d); };
+    const addM = (s, n, day) => { const d = parse(s), t = new Date(d.getFullYear(), d.getMonth() + n, 1), last = new Date(t.getFullYear(), t.getMonth() + 1, 0).getDate(); t.setDate(Math.min(day, last)); return ymdOf(t); };
+    const r2 = n => Math.round((+n || 0) * 100) / 100;
+    const low = s => String(s || "").trim().toLowerCase();
+  
+    const accts = D => D.accounts || [];
+    const payAcct = (D, p) => { const a = accts(D).filter(x => x.owner === p); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || null; };
+    const jointAcct = D => { const a = accts(D).filter(x => x.owner === "Household"); return a.find(x => x.getsPay) || a.find(x => x.kind === "Checking") || null; };
+    const loanAcct = (D, l) => accts(D).find(x => (x.paysLoans || []).includes(l.id)) || payAcct(D, l.person);
+    const billAcct = (D, b, payer) => b.owner === "Household" ? (jointAcct(D) || payAcct(D, payer)) : payAcct(D, b.owner);
+  
+    /* Every money move that has happened (recorded in the Sheet) */
+    function recorded(D) {
+      const ev = [], push = (a, date, amount, label, kind) => { if (a && amount) ev.push({ acct: a.id, date, amount: r2(amount), label, kind }); };
+      const bills = {}, loans = {}; (D.bills || []).forEach(b => bills[b.id] = b); (D.loans || []).forEach(l => loans[l.id] = l);
+      // spending rows that a bill or loan payment logged: the bill/loan record already counts them
+      const paidOn = {}, loanOn = {};
+      (D.billPaid || []).forEach(p => { const b = bills[p.billId]; if (b) (paidOn[p.date] = paidOn[p.date] || []).push(low(b.name)); });
+      (D.loanPayments || []).forEach(p => { const l = loans[p.loanId]; if (l) (loanOn[p.date] = loanOn[p.date] || []).push(low(l.name + " payment")); });
+      const fromBill = t => (paidOn[t.date] || []).some(n => low(t.desc).startsWith(n));
+      const fromLoan = t => (loanOn[t.date] || []).includes(low(t.desc));
+      const perPay = (p, date) => accts(D).filter(x => x.perPaycheck > 0 && x.fromPerson === p).forEach(x => { const f = payAcct(D, p); if (!f || f.id === x.id) return;
+        push(f, date, -x.perPaycheck, "To " + x.name, "move"); push(x, date, x.perPaycheck, "From " + p + "'s paycheck", "move"); });
+      const perBuy = (p, date) => accts(D).filter(x => x.perPurchase > 0 && x.purchasePerson === p).forEach(x => { const f = payAcct(D, p); if (!f || f.id === x.id) return;
+        push(f, date, -x.perPurchase, "To " + x.name + " (per purchase)", "move"); push(x, date, x.perPurchase, p + "'s purchase", "move"); });
+  
+      (D.salaries || []).filter(s => s.type === "Income" || s.type === "Tax Return").forEach(s => {
+        push(payAcct(D, s.person), s.date, s.amount, (s.source || "Pay") + (s.type === "Tax Return" ? " (tax return)" : ""), "pay");
+        if (s.type === "Income") perPay(s.person, s.date);
+      });
+      (D.transactions || []).forEach(t => {
+        if (fromBill(t) || fromLoan(t)) return;
+        const a = payAcct(D, t.person), card = t.category === "Credit Card";
+        if (card && t.amount < 0) { push(a, t.date, t.amount, (t.sub || "Card") + " payment", "card"); return; }
+        if (!card && t.type === "Income") { push(a, t.date, t.amount, t.desc, "pay"); return; }
+        if (!card) push(a, t.date, -t.amount, t.desc, "spend");
+        if (t.amount > 0) perBuy(t.person, t.date);           // card charges count as purchases too
+      });
+      (D.billPaid || []).forEach(p => { const b = bills[p.billId]; if (b) push(billAcct(D, b, p.person), p.date, -p.amount, b.name + (/auto/i.test(p.how || "") ? " (autopay)" : ""), "bill"); });
+      (D.loanPayments || []).forEach(p => { const l = loans[p.loanId]; if (l) push(loanAcct(D, l), p.date, -p.amount, l.name + " payment", "loan"); });
+      return ev;
+    }
+  
+    /* What's expected next: paychecks on their schedule, unpaid bills and loan payments */
+    function expected(D, today, to, occurrences) {
+      const ev = [], push = (a, date, amount, label, kind) => { if (a && amount) ev.push({ acct: a.id, date, amount: r2(amount), label, kind, expected: true }); };
+      // paychecks: the latest one per person + source repeats on its frequency
+      const last = {};
+      (D.salaries || []).filter(s => s.type === "Income" && STEP[s.frequency]).forEach(s => { const k = s.person + "|" + low(s.source); if (!last[k] || s.date > last[k].date) last[k] = s; });
+      Object.values(last).forEach(s => {
+        const [m, d] = STEP[s.frequency], day = +s.date.slice(8, 10); let n = 1, next;
+        while (n < 400) { next = m ? addM(s.date, m * n, day) : addD(s.date, d * n); n++; if (next > today) break; }
+        for (; next <= to && n < 800; n++) {
+          push(payAcct(D, s.person), next, s.amount, (s.source || "Pay") + " (expected)", "pay");
+          accts(D).filter(x => x.perPaycheck > 0 && x.fromPerson === s.person).forEach(x => { const f = payAcct(D, s.person); if (!f || f.id === x.id) return;
+            push(f, next, -x.perPaycheck, "To " + x.name, "move"); push(x, next, x.perPaycheck, "From " + s.person + "'s paycheck", "move"); });
+          next = m ? addM(s.date, m * n, day) : addD(s.date, d * n);
+        }
+      });
+      const paid = {}; (D.billPaid || []).forEach(p => paid[p.billId + "|" + p.due] = true);
+      (D.bills || []).forEach(b => occurrences(b, today, to).forEach(due => { if (paid[b.id + "|" + due]) return;
+        push(billAcct(D, b, b.paidBy || b.owner), due, -b.amount, b.name + (b.autopay ? " (autopay)" : ""), "bill"); }));
+      (D.loans || []).forEach(l => { if (!(l.payment > 0) || !(l.dueDay > 0)) return;
+        for (let i = 0; i < 4; i++) { const due = addM(today.slice(0, 8) + "01", i, l.dueDay); if (due < today || due > to) continue;
+          const from = addD(due, -20); if ((D.loanPayments || []).some(p => p.loanId === l.id && p.date >= from && p.date <= addD(due, 10))) continue;
+          push(loanAcct(D, l), due, -l.payment, l.name + " payment", "loan"); } });
+      return ev.sort((a, b) => a.date.localeCompare(b.date));
+    }
+  
+    /* Everything for the accounts list: live balance, the next `days` day by day, the low point */
+    function summary(D, opts) {
+      const today = D.today, days = (opts && opts.days) || 45, to = addD(today, days), rec = recorded(D);
+      const exp = expected(D, today, to, opts.occurrences);
+      return accts(D).map(a => {
+        const since = rec.filter(e => e.acct === a.id && e.date >= a.asOf);
+        const live = r2(a.base + since.filter(e => e.date <= today).reduce((s, e) => s + e.amount, 0));
+        const ahead = since.filter(e => e.date > today).concat(exp.filter(e => e.acct === a.id)).sort((x, y) => x.date.localeCompare(y.date));
+        const series = []; let bal = live, lowV = live, lowD = today;
+        for (let i = 0; i <= days; i++) { const d = addD(today, i); ahead.filter(e => e.date === d && (i > 0 || e.expected)).forEach(e => bal += e.amount); bal = r2(bal); series.push(bal); if (bal < lowV) { lowV = bal; lowD = d; } }
+        const recent = since.filter(e => e.date <= today).concat(rec.filter(e => e.acct === a.id && e.date < a.asOf)).sort((x, y) => y.date.localeCompare(x.date)).slice(0, 30);
+        return Object.assign({}, a, { live, series, low: { amount: lowV, date: lowD }, end: series[series.length - 1], ahead: ahead.filter(e => e.date <= to), recent });
+      });
+    }
+    /* For "Update balance": what today's recorded moves add up to (so the number typed is exactly what shows) */
+    const todayMoves = (D, a) => r2(recorded(D).filter(e => e.acct === a.id && e.date === D.today).reduce((s, e) => s + e.amount, 0));
+    return { summary, todayMoves, payAcct, jointAcct, STEP };
+  })();
+  
+  /* Bank accounts this person may see (joint ones + their own); the total counts every account */
+  function bank(D, me) {
+    if (!D || !(D.accounts || []).length) return null;
+    const all = Bank.summary(D, { occurrences, days: 45 }), at = (a, i) => a.series[Math.min(i, a.series.length - 1)];
+    const vis = all.filter(a => a.owner === "Household" || a.owner === me);
+    return { accounts: vis.map(a => ({ id: a.id, name: a.name, kind: a.kind, owner: a.owner, live: a.live, in30: at(a, 30), low: a.low, series: a.series, next: a.ahead.slice(0, 3) })),
+      total: all.reduce((s, a) => s + a.live, 0), total30: all.reduce((s, a) => s + at(a, 30), 0) };
+  }
+
+  const Calc = { bank, timeline, planner, budget, plannerCountdowns, occurrences, ymd, parseD, days, addDays, MON };
   root.Calc = Calc;
   if (typeof module !== "undefined" && module.exports) module.exports = Calc;
 })(typeof window !== "undefined" ? window : globalThis);

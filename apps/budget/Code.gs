@@ -41,7 +41,8 @@ const TABS = {
   Bills:           ['Id', 'Name', 'Owner', 'Amount', 'Frequency', 'Start Date', 'Category', 'Sub-category', 'Method', 'Autopay', 'Notes', 'Split', 'Paid By'],
   BillPaid:        ['Bill Id', 'Due Date', 'Paid Date', 'Person', 'Amount', 'How'],
   Loans:           ['Id', 'Person', 'Name', 'Kind', 'Lender', 'Original', 'Balance', 'As Of Date', 'APR', 'Payment', 'Due Day', 'Start Date'],
-  LoanPayments:    ['Loan Id', 'Date', 'Person', 'Amount', 'Note']
+  LoanPayments:    ['Loan Id', 'Date', 'Person', 'Amount', 'Note'],
+  Accounts:        ['Id', 'Name', 'Kind', 'Owner', 'Balance', 'As Of Date', 'Gets Pay', 'Per Paycheck', 'From Person', 'Per Purchase', 'Purchase Person', 'Pays Loans', 'Created']
 };
 const HOUSEHOLD = 'Household';
 
@@ -50,7 +51,7 @@ const LOCK_MINUTES = 15;      // …per this many minutes, for everyone
 
 /* ================= web app ================= */
 
-const APP_VERSION = '2026.11.16';   // shown at the bottom of the app. Code.gs and Index.html should match.
+const APP_VERSION = '2026.11.16b';   // shown at the bottom of the app. Code.gs and Index.html should match.
 
 function appName_() {
   const pr = PropertiesService.getScriptProperties();
@@ -84,7 +85,7 @@ function summaryJson_(p) {
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
-const RPC = { unlock, getAll, addTransaction, addPay, setBudget, setCategoryBudget, addCard, addGoal, addGoalMove, addBill, markBillPaid, addLoan, addLoanPayment, updateRow, deleteRow, setAppName, rememberDevice };   // shorthand: each name is the app's own function
+const RPC = { addAccount, unlock, getAll, addTransaction, addPay, setBudget, setCategoryBudget, addCard, addGoal, addGoalMove, addBill, markBillPaid, addLoan, addLoanPayment, updateRow, deleteRow, setAppName, rememberDevice };   // shorthand: each name is the app's own function
 
 /* Launcher sign-in: POST {api:'connect', pin, person}. Checks the PIN (same lockout as the app) and returns
    that person's personal-link code, so the launcher never has to show or ask for a personal link. */
@@ -298,6 +299,35 @@ function addGoal(pin, g) {
   return withLock_(() => { appendRow_('Goals', r); return loadAll_(); });
 }
 
+/* Bank accounts. Balance is what the account held on As Of Date; the app adds everything recorded since.
+   a = {name, kind, owner, balance, asOf, getsPay, perPaycheck, fromPerson, perPurchase, purchasePerson, paysLoans[]} */
+function cleanAccount_(a) {
+  a = a || {};
+  const money = (v, what) => { const n = Math.round(Number(v || 0) * 100) / 100; if (!(n >= 0)) throw new Error(what + ' can\'t be negative.'); return n; };
+  const per = money(a.perPaycheck, 'Amount per paycheck'), buy = money(a.perPurchase, 'Amount per purchase');
+  return {
+    'Name': text_(a.name, 'Account name'),
+    'Kind': oneOf_(a.kind, ['Checking', 'Savings'], 'kind of account'),
+    'Owner': oneOf_(a.owner, PEOPLE.concat([HOUSEHOLD]), 'owner'),
+    'Balance': Math.round(Number(a.balance || 0) * 100) / 100,
+    'As Of Date': "'" + date_(a.asOf || today_()),
+    'Gets Pay': !!a.getsPay,
+    'Per Paycheck': per || '', 'From Person': per ? oneOf_(a.fromPerson, PEOPLE, 'whose paycheck') : '',
+    'Per Purchase': buy || '', 'Purchase Person': buy ? oneOf_(a.purchasePerson, PEOPLE, 'whose purchases') : '',
+    'Pays Loans': (Array.isArray(a.paysLoans) ? a.paysLoans : []).map(String).filter(Boolean).join(',')
+  };
+}
+function addAccount(pin, a) {
+  auth_(pin);
+  const r = cleanAccount_(a);
+  r['Id'] = 'a' + Utilities.getUuid().replace(/-/g, '').slice(0, 10);
+  r['Created'] = today_();
+  return withLock_(() => {
+    if (readTab_('Accounts').some(x => x.Owner === r.Owner && low_(x.Name) === low_(r.Name))) throw new Error('There\'s already an account with that name.');
+    appendRow_('Accounts', r); return loadAll_();
+  });
+}
+
 /* m = {goalId, date, person, amount (negative = withdrawal), note} */
 function addGoalMove(pin, m) {
   auth_(pin);
@@ -483,6 +513,7 @@ function updateRow(pin, tabName, row, fp, obj) {
     else if (tabName === 'Goals') { cells = cleanGoal_(obj); if ('archived' in obj) cells['Archived'] = !!obj.archived; }
     else if (tabName === 'Bills') cells = cleanBill_(obj);
     else if (tabName === 'Loans') cells = cleanLoan_(obj);
+    else if (tabName === 'Accounts') cells = cleanAccount_(obj);
     else throw new Error('That kind of entry can\'t be edited here.');
     setCells_(tabName, r._row, cells);
     return loadAll_();
@@ -550,7 +581,10 @@ function loadAll_() {
     billPaid: readTab_('BillPaid').map(r => pack(r, { billId: r['Bill Id'], due: r['Due Date'], date: r['Paid Date'], person: r.Person, amount: num_(r.Amount), how: r.How || '' })),
     loans: readTab_('Loans').map(r => pack(r, { id: r.Id, person: r.Person, name: r.Name, kind: r.Kind, lender: r.Lender, original: num_(r.Original),
       balance: num_(r.Balance), asOf: r['As Of Date'], apr: num_(r.APR), payment: num_(r.Payment), dueDay: num_(r['Due Day']), start: r['Start Date'] })),
-    loanPayments: readTab_('LoanPayments').map(r => pack(r, { loanId: r['Loan Id'], date: r.Date, person: r.Person, amount: num_(r.Amount), note: r.Note }))
+    loanPayments: readTab_('LoanPayments').map(r => pack(r, { loanId: r['Loan Id'], date: r.Date, person: r.Person, amount: num_(r.Amount), note: r.Note })),
+    accounts: readTab_('Accounts').map(r => pack(r, { id: r.Id, name: r.Name, kind: r.Kind, owner: r.Owner, base: num_(r.Balance), asOf: r['As Of Date'],
+      getsPay: truthy_(r['Gets Pay']), perPaycheck: num_(r['Per Paycheck']), fromPerson: r['From Person'], perPurchase: num_(r['Per Purchase']),
+      purchasePerson: r['Purchase Person'], paysLoans: String(r['Pays Loans'] || '').split(',').filter(Boolean) }))
   };
 }
 

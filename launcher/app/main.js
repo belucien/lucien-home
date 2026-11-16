@@ -120,6 +120,10 @@ function shape() {
   out.planner = P && P.ok ? Calc.planner(P.data, { me: settings.who }) : (P || { ok: false, setup: true });
   out.budget = B && B.ok ? Object.assign(Calc.budget(B.data, settings.glanceScope), { me: B.data.me }) : (B || { ok: false, setup: true });
   if (out.budget.ok) { const me = B.data.me; out.budgetMine = me ? Calc.budget(B.data, me) : null; out.budgetHouse = Calc.budget(B.data, "Household"); }
+  if (out.budget.ok) { const me = B.data.me;
+    try { out.bank = Calc.bank(B.data, me); } catch (e) { console.error(e); out.bank = null; }
+    // pay is private: only the person signed in sees their own income (Household shows the combined figure)
+    if (out.budget.scope !== "Household" && out.budget.scope !== me && out.budget.month) { out.budget.month.income = null; out.budget.private = true; } }
   out.people = (P && P.ok && P.data.people) || (B && B.ok && B.data.people) || [];
   // calendar history and future: Jan 1 last year → Dec 31 next year
   const y = new Date().getFullYear();

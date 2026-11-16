@@ -183,6 +183,12 @@ function slides() {
       desc: esc(hm ? "Amounts are hidden on this PC." : `${money0(m.mtd)} spent so far${m.budget != null ? ` of ${money0(m.budget)}` : ""}, with ${plural(m.left, "day")} to go.${pace ? ` On pace for ${money0(pace)} by the end of the month.` : ""}${vs != null ? ` That's ${Math.abs(vs)}% ${vs > 0 ? "more" : "less"} than this point in ${m.lastLabel}.` : ""}`),
       stats: [["Day", `${m.day} of ${m.n}`], ...(m.cats[0] ? [["Biggest", `${m.cats[0].name}${hm ? "" : " · " + money0(m.cats[0].amt)}`]] : []), ...(m.income ? [["Income", hm ? "•••" : money0(m.income)]] : [])],
       btn: ["Open Budget", "budget"] }); }
+  const bk = S.sum && S.sum.bank;
+  if (bk && bk.accounts.length) { const lowA = bk.accounts.slice().sort((a, b) => a.low.amount - b.low.amount)[0], mine = bk.accounts.filter(a => a.owner !== "Household");
+    out.push({ id: "bank", src: "budget", label: "Bank", tags: `${upd}<span>Budget · Bank accounts</span>`,
+      title: hm ? "Bank accounts" : `${money0(bk.total)} across your accounts`,
+      desc: esc(hm ? "Amounts are hidden on this PC." : `About ${money0(bk.total30)} in 30 days with expected pay and bills. Lowest point: ${lowA.name} at ${money0(lowA.low.amount)}${lowA.low.date !== todayStr() ? " on " + dLabel(lowA.low.date).replace(/^\w+, /, "") : ""}.`),
+      stats: bk.accounts.slice(0, 3).map(a => [a.name, hm ? "•••" : money0(a.live)]), btn: ["Open Budget", "budget"] }); }
   if (h) { const late = h.bills.filter(x => x.days < 0), wk = h.bills.filter(x => x.days >= 0 && x.days <= 7), mb = h.billsMonth, nx = late[0] || wk[0];
     out.push({ id: "bills", src: "budget", label: "Bills", tags: `${upd}<span>Budget · Household bills</span>`,
       title: late.length ? `${plural(late.length, "bill")} past due` : wk.length ? `${plural(wk.length, "bill")} due this week` : "No bills due this week",
@@ -310,7 +316,7 @@ function glanceHTML() {
     const pay = b.loans.find(l => l.payoff);
     debt = `<button class="gl" data-open="budget" style="text-align:left;color:inherit"><div class="k"><span>Debt & goals</span></div>${rows.length ? `<div class="mini">${rows.slice(0, 3).map(r => `<div><span>${esc(r[0])}</span><b>${r[1]}</b></div>`).join("")}${pay ? `<div><span>${esc(pay.name)} paid off by</span><b>${esc(pay.payoff)}</b></div>` : ""}</div>` : `<div class="none">No loans or cards for ${esc(scope)}.</div>`}</button>`; }
   const hm = hideMoney(), bar = (v, max, cls = "") => `<div class="bar ${cls}"><i style="width:${max ? Math.min(100, v / max * 100) : 0}%"></i></div>`;
-  let billsC = "", cats = "", meals = "", lists = "";
+  let billsC = "", cats = "", meals = "", lists = "", bankC = "";
   if (b) { const mb = b.billsMonth, tot = mb.paid + mb.left;
     billsC = `<button class="gl" data-cal="bills" style="text-align:left;color:inherit"><div class="k"><span>Bills in ${esc(b.month.label)}</span><span>${mb.paid} of ${tot} paid</span></div>
       <div class="v">${hm ? `${mb.left}<small>to pay</small>` : `${esc(money0(mb.leftAmt))}<small>still to pay</small>`}</div>${bar(mb.paid, tot, "good")}
@@ -318,13 +324,16 @@ function glanceHTML() {
     const cs = b.month.cats, top = cs.length ? cs[0].amt : 0;
     cats = `<button class="gl" data-open="budget" style="text-align:left;color:inherit"><div class="k"><span>Where it went</span><span>${esc(b.month.label)}</span></div>${cs.length ? `<div class="cats">${cs.slice(0, 4).map(c => `<div><span>${esc(c.name)}</span><b>${hm ? "•••" : esc(money0(c.amt))}</b>${bar(c.amt, top)}</div>`).join("")}</div>`
       : `<div class="none">No spending yet this month.</div>`}${b.month.lastSame && !hm ? `<div class="d" style="margin-top:8px"><span>${b.month.lastLabel} at this point: ${esc(money0(b.month.lastSame))}</span></div>` : ""}</button>`; }
+  const bk = S.sum && S.sum.bank;
+  if (bk && bk.accounts.length) bankC = `<button class="gl" data-open="budget" style="text-align:left;color:inherit"><div class="k"><span>Bank accounts</span><span>${hm ? "" : "all: " + esc(money0(bk.total))}</span></div>
+      <div class="cats">${bk.accounts.slice(0, 5).map(a => `<div><span>${esc(a.name)}${a.owner === "Household" ? "" : " · " + esc(a.owner)}</span><b>${hm ? "•••" : esc(money0(a.live))}</b><span class="sub2">${hm ? "" : "30 days: " + esc(money0(a.in30)) + (a.low.amount < 0 ? " · goes negative" : "")}</span></div>`).join("")}</div></button>`;
   if (p) { const t = p.today;
     meals = `<button class="gl" data-open="planner" style="text-align:left;color:inherit"><div class="k"><span>Dinners this week</span><span>${p.mealsPlanned} / 7 · shop ${p.shopCount}${p.extras.breakfast + p.extras.drink ? ` · +${p.extras.breakfast + p.extras.drink} bkfst/drinks` : ""}</span></div>
       <div class="wkmeals">${p.week.map(n => `<div class="${n.date === t ? "on" : n.date < t ? "past" : ""}"><span>${n.date === t ? "Tonight" : DOW[n.day]}</span><b title="${esc(n.label || "Not planned")}">${esc(n.label || "Not planned")}</b></div>`).join("")}</div></button>`;
     const ls = p.lists.filter(l => l.id !== "groceries" && l.total);
     lists = `<button class="gl" data-open="planner" style="text-align:left;color:inherit"><div class="k"><span>Lists</span><span>${plural(p.itemsLeft, "thing")} left</span></div>${ls.length ? `<div class="cats">${ls.slice(0, 4).map(l => `<div><span>${esc(l.name)}</span><b>${l.done}/${l.total}</b>${bar(l.done, l.total, "plan")}</div>`).join("")}</div>` : `<div class="none">No lists yet.</div>`}</button>`; }
   return `<section class="sec"><div class="sh"><h2>At a glance</h2><span>${esc(scope)} · ${b ? esc(b.month.label) : ""}</span><div class="r">${seg}</div></div>
-    <div class="glance g6">${spent}${billsC}${cats}${meals}${lists}${debt || ""}</div></section>`;
+    <div class="glance g6">${bankC}${spent}${billsC}${cats}${meals}${lists}${debt || ""}</div></section>`;
 }
 /* ---- Trends: three small charts (inline SVG, hover for values) ---- */
 const niceMax = v => { if (v <= 0) return 100; const e = Math.pow(10, Math.floor(Math.log10(v))), f = v / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * e; };
