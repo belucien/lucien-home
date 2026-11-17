@@ -422,7 +422,7 @@ label.cb input{width:20px;height:20px;accent-color:var(--accent);margin:0}
 <div id="tip" hidden></div>
 
 <script>
-const CLIENT_VERSION="2026.11.16e";
+const CLIENT_VERSION="2026.11.17";
 function showAppName(full){ document.querySelectorAll(".appname").forEach(e=>e.textContent=full); document.title=full; }
 if(/__APP_NAME__/.test(document.querySelector(".appname").textContent)) showAppName("Family Budget Log "+new Date().getFullYear());
 document.getElementById("lockVer").textContent="Version "+CLIENT_VERSION;
@@ -564,8 +564,9 @@ const Bank = (() => {
     (D.loanPayments || []).forEach(p => { const l = loans[p.loanId]; if (l) (loanOn[p.date] = loanOn[p.date] || []).push(low(l.name + " payment")); });
     const fromBill = t => (paidOn[t.date] || []).some(n => low(t.desc).startsWith(n));
     const fromLoan = t => (loanOn[t.date] || []).includes(low(t.desc));
-    const perPay = (p, date) => accts(D).filter(x => x.perPaycheck > 0 && x.fromPerson === p).forEach(x => { const f = payAcct(D, p); if (!f || f.id === x.id) return;
-      push(f, date, -x.perPaycheck, "To " + x.name, "move"); push(x, date, x.perPaycheck, "From " + p + "'s paycheck", "move"); });
+    const paidDays = new Set();                     // one set of paycheck moves per person per payday, even if two pay entries share a day
+    const perPay = (p, date) => { if (paidDays.has(p + "|" + date)) return; paidDays.add(p + "|" + date); accts(D).filter(x => x.perPaycheck > 0 && x.fromPerson === p).forEach(x => { const f = payAcct(D, p); if (!f || f.id === x.id) return;
+      push(f, date, -x.perPaycheck, "To " + x.name, "move"); push(x, date, x.perPaycheck, "From " + p + "'s paycheck", "move"); }); };
     const perBuy = (p, date) => accts(D).filter(x => x.perPurchase > 0 && x.purchasePerson === p).forEach(x => { const f = payAcct(D, p); if (!f || f.id === x.id) return;
       push(f, date, -x.perPurchase, "To " + x.name + " (per purchase)", "move"); push(x, date, x.perPurchase, p + "'s purchase", "move"); });
 
@@ -597,14 +598,18 @@ const Bank = (() => {
     const ev = [], push = (a, date, amount, label, kind) => { if (a && amount) ev.push({ acct: a.id, date, amount: r2(amount), label, kind, expected: true }); };
     // paychecks: the latest one per person + source repeats on its frequency
     const last = {};
-    (D.salaries || []).filter(s => s.type === "Income" && STEP[s.frequency]).forEach(s => { const k = s.person + "|" + low(s.source); if (!last[k] || s.date > last[k].date) last[k] = s; });
+    (D.salaries || []).filter(s => s.type === "Income" && STEP[s.frequency]).forEach(s => { const k = s.person + "|" + low(s.source).replace(/[^a-z0-9]/g, ""); /* "UCI - Health" and "UCI Health" are the same job */ if (!last[k] || s.date > last[k].date) last[k] = s; });
+    // a payday already logged (any source, within 3 days) isn't expected again; moves happen once per person per payday
+    const logged = (D.salaries || []).filter(s => s.type === "Income"), moved = new Set();
+    const near = (p, d) => logged.some(s => s.person === p && Math.abs(parse(s.date) - parse(d)) <= 3 * 864e5);
     Object.values(last).forEach(s => {
       const [m, d] = STEP[s.frequency], day = +s.date.slice(8, 10); let n = 1, next;
       while (n < 400) { next = m ? addM(s.date, m * n, day) : addD(s.date, d * n); n++; if (next > today) break; }
       for (; next <= to && n < 800; n++) {
-        push(payAcct(D, s.person), next, s.amount, (s.source || "Pay") + " (expected)", "pay");
-        accts(D).filter(x => x.perPaycheck > 0 && x.fromPerson === s.person).forEach(x => { const f = payAcct(D, s.person); if (!f || f.id === x.id) return;
-          push(f, next, -x.perPaycheck, "To " + x.name, "move"); push(x, next, x.perPaycheck, "From " + s.person + "'s paycheck", "move"); });
+        if (near(s.person, next)) { next = m ? addM(s.date, m * n, day) : addD(s.date, d * n); continue; }
+        if (!moved.has("pay|" + s.person + "|" + next + "|" + s.amount)) { moved.add("pay|" + s.person + "|" + next + "|" + s.amount); push(payAcct(D, s.person), next, s.amount, (s.source || "Pay") + " (expected)", "pay"); }
+        if (!moved.has(s.person + "|" + next)) { moved.add(s.person + "|" + next); accts(D).filter(x => x.perPaycheck > 0 && x.fromPerson === s.person).forEach(x => { const f = payAcct(D, s.person); if (!f || f.id === x.id) return;
+          push(f, next, -x.perPaycheck, "To " + x.name, "move"); push(x, next, x.perPaycheck, "From " + s.person + "'s paycheck", "move"); }); }
         next = m ? addM(s.date, m * n, day) : addD(s.date, d * n);
       }
     });
