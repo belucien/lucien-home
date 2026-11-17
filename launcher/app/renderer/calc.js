@@ -58,7 +58,7 @@
     const nightLabel = n => !n ? "" : n.kind === "skip" ? "No dinner" : n.kind === "takeout" || n.kind === "out" ? "Takeout" : n.recipe ? recipeName(n.recipe) : "";
     const tonight = nightLabel(nights[dow]) || null;
     const planned = nights.filter(n => n && (n.recipe || n.kind !== "meal")).length;
-    const cds = plannerCountdowns(S, t);
+    const cdSeen = new Set(), cds = plannerCountdowns(S, t).filter(c => { const k = c.start + "|" + String(c.name).trim().toLowerCase(); if (cdSeen.has(k)) return false; cdSeen.add(k); return true; });   // same date entered twice shows once
     const babyDays = isYmd(S.due) ? days(t, S.due) : null;
     const baby = lists.find(l => /baby/i.test(l.name));
     const wkPlan = (S.plan || []).filter(p => p.week === wk && p.recipe);
@@ -183,7 +183,9 @@
           out.push({ src: "budget", kind: "Loan payment", name: l.name, date: due, amount: l.payment, full: l.payment, loan: true, status: "due" }); });
       });
     }
-    return out.sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || "") || a.name.localeCompare(b.name));
+    // the same date entered twice (e.g. a holiday also added as an event) shows once
+    const seen = new Set(), uniq = out.filter(x => { if (x.src !== "planner") return true; const k = x.date + "|" + String(x.name).trim().toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; });
+    return uniq.sort((a, b) => a.date.localeCompare(b.date) || (a.time || "").localeCompare(b.time || "") || a.name.localeCompare(b.name));
   }
 
 /* ---- Bank accounts: live balances and what's coming. Shared by the Budget Log and Lucien Home. ----
@@ -225,7 +227,7 @@
   
       (D.salaries || []).filter(s => s.type === "Income" || s.type === "Tax Return").forEach(s => {
         push(payAcct(D, s.person), s.date, s.amount, (s.source || "Pay") + (s.type === "Tax Return" ? " (tax return)" : ""), "pay");
-        if (s.type === "Income") perPay(s.person, s.date);
+        if (s.type === "Income" && STEP[s.frequency]) perPay(s.person, s.date);   // regular paychecks only, not one-time bonuses
       });
       // anything logged as Stock goes into that person's Stocks account (and out of their checking, if set)
       (D.salaries || []).filter(s => s.type === "Stock").forEach(s => {
@@ -233,13 +235,20 @@
         push(st, s.date, s.amount, (s.source || "Stock") + " (stock)", "stock");
         if (st.fromChecking) push(payAcct(D, s.person), s.date, -s.amount, "To " + st.name, "move");
       });
+      // a split purchase is saved as two rows (payer first, then the other person's share); the whole amount left the payer's account
+      const byRow = {}; (D.transactions || []).forEach(t => { if (t.row) byRow[t.row] = t; });
+      const splitPayer = t => { if (!/\(split\)$/i.test(String(t.desc || ""))) return null; const p = byRow[t.row - 1];
+        return p && p.person !== t.person && p.date === t.date && p.desc === t.desc && p.method === t.method ? p : null; };
+      const payKey = s => s.person + "|" + s.date + "|" + r2(s.amount);
+      const salaryKeys = new Set((D.salaries || []).filter(s => s.type === "Income" || s.type === "Tax Return").map(payKey));
       (D.transactions || []).forEach(t => {
         if (fromBill(t) || fromLoan(t)) return;
-        const a = (t.paidFrom && accts(D).find(x => x.id === t.paidFrom)) || payAcct(D, t.person), card = t.category === "Credit Card";
+        const payer = splitPayer(t), who = payer ? payer.person : t.person;
+        const a = (t.paidFrom && accts(D).find(x => x.id === t.paidFrom)) || payAcct(D, who), card = t.category === "Credit Card";
         if (card && t.amount < 0) { push(a, t.date, t.amount, (t.sub || "Card") + " payment", "card"); return; }
-        if (!card && t.type === "Income") { push(a, t.date, t.amount, t.desc, "pay"); return; }
-        if (!card) push(a, t.date, -t.amount, t.desc, "spend");
-        if (t.amount > 0) perBuy(t.person, t.date);           // card charges count as purchases too
+        if (!card && t.type === "Income") { if (!salaryKeys.has(payKey(t))) push(a, t.date, t.amount, t.desc, "pay"); return; }   // same pay logged under Pay too: count once
+        if (!card) push(a, t.date, -t.amount, t.desc + (payer ? ` (${t.person}'s share)` : ""), "spend");
+        if (t.amount > 0 && !payer) perBuy(t.person, t.date);           // card charges count as purchases too; a split purchase counts once
       });
       (D.billPaid || []).forEach(p => { const b = bills[p.billId]; if (b) push(billAcct(D, b, p.person), p.date, -p.amount, b.name + (/auto/i.test(p.how || "") ? " (autopay)" : ""), "bill"); });
       (D.loanPayments || []).forEach(p => { const l = loans[p.loanId]; if (l) push(loanAcct(D, l), p.date, -p.amount, l.name + " payment", "loan"); });
@@ -257,6 +266,7 @@
       const near = (p, d) => logged.some(s => s.person === p && Math.abs(parse(s.date) - parse(d)) <= 3 * 864e5);
       Object.values(last).forEach(s => {
         const [m, d] = STEP[s.frequency], day = +s.date.slice(8, 10); let n = 1, next;
+        const cycle = m ? m * 31 : d; if ((parse(today) - parse(s.date)) / 864e5 > cycle * 2 + 7) return;   // a job not logged for two pay periods has probably ended
         while (n < 400) { next = m ? addM(s.date, m * n, day) : addD(s.date, d * n); n++; if (next > today) break; }
         for (; next <= to && n < 800; n++) {
           if (near(s.person, next)) { next = m ? addM(s.date, m * n, day) : addD(s.date, d * n); continue; }
